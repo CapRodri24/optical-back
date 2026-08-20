@@ -127,7 +127,7 @@ const authenticateUser = async (username, password) => {
     console.log("Permisos concedidos:", grantedPermissions);
     console.log("Permisos revocados:", revokedPermissions);
 
-    // 6. Generar token JWT
+    // 6. Generar token JWT - USANDO id_usuario (NO id)
     const token = jwt.sign(
       {
         id_usuario: user.id_usuario,

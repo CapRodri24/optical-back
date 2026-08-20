@@ -34,9 +34,13 @@ const authenticate = async (req, res, next) => {
     }
 
     // 4. Verificar y decodificar el token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "opticavision-secret-key-2024");
 
-    if (!decoded || !decoded.id) {
+    console.log("=== [Middleware] Token decodificado ===");
+    console.log("decoded:", decoded);
+
+    if (!decoded || !decoded.id_usuario) {
+      console.log("Token inválido: no tiene id_usuario");
       return res.status(401).json({
         success: false,
         message: "Invalid token payload",
@@ -46,22 +50,24 @@ const authenticate = async (req, res, next) => {
     // 5. Buscar el usuario en la base de datos
     const userQuery = `
       SELECT 
-        idAgente,
-        nombre,
-        apellido,
-        email,
-        telefono,
-        ci,
-        direccion,
-        especializacion,
-        rol,
-        estado,
-        idgrupo
-      FROM Agente 
-      WHERE idAgente = $1 AND estado = 'activo'
+        u.id_usuario,
+        u.id_persona,
+        u.usuario,
+        u.id_rol,
+        u.estado,
+        p.nombre,
+        p.apellido,
+        p.celular,
+        r.nombre as rol_nombre
+      FROM usuario u
+      INNER JOIN persona p ON u.id_persona = p.id_persona
+      INNER JOIN rol r ON u.id_rol = r.id_rol
+      WHERE u.id_usuario = $1 AND u.estado = 'activo'
     `;
     
-    const userResult = await db.query(userQuery, [decoded.id]);
+    const userResult = await db.query(userQuery, [decoded.id_usuario]);
+    
+    console.log("Usuario encontrado:", userResult.rows.length > 0 ? userResult.rows[0].usuario : "No encontrado");
     
     if (userResult.rows.length === 0) {
       return res.status(401).json({
@@ -103,7 +109,7 @@ const authorize = (requiredRoles) => {
       });
     }
 
-    if (!requiredRoles.includes(req.user.rol)) {
+    if (!requiredRoles.includes(req.user.rol_nombre)) {
       return res.status(403).json({
         success: false,
         message: "Insufficient permissions",

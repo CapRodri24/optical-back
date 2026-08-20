@@ -64,16 +64,35 @@ const logout = async (req, res) => {
 
 const verifyToken = async (req, res) => {
   try {
+    console.log("=== verifyToken Controller ===");
+    console.log("req.user:", req.user);
+    
     if (req.user) {
       const stores = await loginService.getUserStores(req.user.id_usuario);
       
-      console.log("=== verifyToken ===");
       console.log("Usuario:", req.user.usuario);
       console.log("Tiendas encontradas:", stores.length);
       
+      // Construir objeto de usuario para el frontend
+      const userData = {
+        id_usuario: req.user.id_usuario,
+        id_persona: req.user.id_persona,
+        username: req.user.usuario,
+        name: req.user.nombre,
+        lastname: req.user.apellido,
+        role: req.user.rol_nombre,
+        id_rol: req.user.id_rol,
+        phoneNumber: req.user.celular,
+        status: req.user.estado,
+        tiendaIds: stores.map(s => s.id_tienda),
+        tiendaNombre: stores.length > 0 ? stores[0].nombre_tienda : null,
+        negocioId: stores.length > 0 ? stores[0].id_negocio : null,
+        stores: stores
+      };
+      
       res.json({
         success: true,
-        user: req.user,
+        user: userData,
         stores: stores || []
       });
     } else {
@@ -127,16 +146,34 @@ const changePassword = async (req, res) => {
 
 const getCurrentUser = async (req, res) => {
   try {
+    console.log("=== getCurrentUser Controller ===");
+    console.log("req.user:", req.user);
+    
     if (req.user) {
       const stores = await loginService.getUserStores(req.user.id_usuario);
       
-      console.log("=== getCurrentUser ===");
       console.log("Usuario:", req.user.usuario);
       console.log("Tiendas encontradas:", stores.length);
       
+      const userData = {
+        id_usuario: req.user.id_usuario,
+        id_persona: req.user.id_persona,
+        username: req.user.usuario,
+        name: req.user.nombre,
+        lastname: req.user.apellido,
+        role: req.user.rol_nombre,
+        id_rol: req.user.id_rol,
+        phoneNumber: req.user.celular,
+        status: req.user.estado,
+        tiendaIds: stores.map(s => s.id_tienda),
+        tiendaNombre: stores.length > 0 ? stores[0].nombre_tienda : null,
+        negocioId: stores.length > 0 ? stores[0].id_negocio : null,
+        stores: stores
+      };
+      
       res.json({
         success: true,
-        user: req.user,
+        user: userData,
         stores: stores || []
       });
     } else {
