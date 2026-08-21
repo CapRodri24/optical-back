@@ -106,10 +106,6 @@ const getUsers = async (tiendaId, negocioId) => {
           INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
           WHERE t.id_negocio = $1
           UNION
-          SELECT mn.id_medidor 
-          FROM medidor_negocio mn
-          WHERE mn.id_negocio = $1
-          UNION
           SELECT u.id_usuario
           FROM usuario u
           INNER JOIN persona p ON u.id_persona = p.id_persona
@@ -126,11 +122,6 @@ const getUsers = async (tiendaId, negocioId) => {
           SELECT ut.id_usuario 
           FROM usuario_tienda ut 
           WHERE ut.id_tienda = $${params.length + 1}
-          UNION
-          SELECT mn.id_medidor 
-          FROM medidor_negocio mn
-          INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
-          WHERE t.id_tienda = $${params.length + 1}
         )
       `;
       params.push(tiendaId);
@@ -151,22 +142,6 @@ const getUsers = async (tiendaId, negocioId) => {
       );
       const tiendas = tiendasResult.rows;
 
-      let allTiendas = [...tiendas];
-      if (row.id_rol === 4) {
-        const medidorResult = await query(
-          `SELECT t.id_tienda as id, t.nombre_tienda as nombre
-           FROM medidor_negocio mn
-           INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
-           WHERE mn.id_medidor = $1`,
-          [row.id]
-        );
-        for (const mt of medidorResult.rows) {
-          if (!allTiendas.some(t => t.id === mt.id)) {
-            allTiendas.push(mt);
-          }
-        }
-      }
-
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
       users.push({
@@ -178,9 +153,9 @@ const getUsers = async (tiendaId, negocioId) => {
         status: row.status || "active",
         phoneNumber: row.phonenumber || "",
         carnet: row.carnet || "",
-        tiendaIds: allTiendas.map(t => t.id),
-        tiendaId: allTiendas.length > 0 ? allTiendas[0].id : null,
-        tiendaNombre: allTiendas.length > 0 ? allTiendas[0].nombre : null,
+        tiendaIds: tiendas.map(t => t.id),
+        tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
+        tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
         grantedPermissions: permissions.granted,
         revokedPermissions: permissions.revoked,
       });
@@ -236,22 +211,6 @@ const getUserById = async (userId) => {
     );
     const tiendas = tiendasResult.rows;
 
-    let allTiendas = [...tiendas];
-    if (row.id_rol === 4) {
-      const medidorResult = await query(
-        `SELECT t.id_tienda as id, t.nombre_tienda as nombre
-         FROM medidor_negocio mn
-         INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
-         WHERE mn.id_medidor = $1`,
-        [row.id]
-      );
-      for (const mt of medidorResult.rows) {
-        if (!allTiendas.some(t => t.id === mt.id)) {
-          allTiendas.push(mt);
-        }
-      }
-    }
-
     const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
     return {
@@ -263,9 +222,9 @@ const getUserById = async (userId) => {
       status: row.status || "active",
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
-      tiendaIds: allTiendas.map(t => t.id),
-      tiendaId: allTiendas.length > 0 ? allTiendas[0].id : null,
-      tiendaNombre: allTiendas.length > 0 ? allTiendas[0].nombre : null,
+      tiendaIds: tiendas.map(t => t.id),
+      tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
+      tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
       grantedPermissions: permissions.granted,
       revokedPermissions: permissions.revoked,
     };
@@ -304,7 +263,6 @@ const updateUser = async (userId, userData) => {
       throw new Error("No se puede modificar un Spider Admin");
     }
 
-    // Actualizar persona
     if (name || lastname || phoneNumber) {
       const updates = [];
       const params = [];
@@ -335,7 +293,6 @@ const updateUser = async (userId, userData) => {
       }
     }
 
-    // Actualizar usuario
     if (username || password || status) {
       const updates = [];
       const params = [];
@@ -375,7 +332,6 @@ const updateUser = async (userId, userData) => {
       }
     }
 
-    // Actualizar carnet
     if (carnet) {
       await query(
         `UPDATE persona_negocio SET carnet_persona = $1 
@@ -384,7 +340,6 @@ const updateUser = async (userId, userData) => {
       );
     }
 
-    // Actualizar tiendas
     if (tiendaIds !== undefined || tiendaId !== undefined) {
       const tiendasAsignar = tiendaIds && tiendaIds.length > 0 
         ? tiendaIds.filter(id => id && id.trim() !== "") 
@@ -400,32 +355,8 @@ const updateUser = async (userId, userData) => {
           );
         }
       }
-
-      // Actualizar medidor_negocio si es medidor
-      const roleResult = await query(
-        'SELECT id_rol FROM usuario WHERE id_usuario = $1',
-        [userId]
-      );
-      if (roleResult.rows.length > 0 && roleResult.rows[0].id_rol === 4) {
-        await query('DELETE FROM medidor_negocio WHERE id_medidor = $1', [userId]);
-        
-        if (tiendasAsignar.length > 0 && tiendasAsignar[0] && tiendasAsignar[0].trim() !== "") {
-          const negocioResult = await query(
-            'SELECT id_negocio FROM tienda WHERE id_tienda = $1',
-            [tiendasAsignar[0]]
-          );
-          if (negocioResult.rows.length > 0) {
-            await query(
-              `INSERT INTO medidor_negocio (id_medidor, id_negocio) VALUES ($1, $2)
-               ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
-              [userId, negocioResult.rows[0].id_negocio]
-            );
-          }
-        }
-      }
     }
 
-    // Actualizar permisos
     if (grantedPermissions !== undefined || revokedPermissions !== undefined) {
       await query('DELETE FROM usuario_permiso WHERE id_usuario = $1', [userId]);
 
