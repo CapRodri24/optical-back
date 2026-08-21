@@ -12,7 +12,13 @@ router.delete("/:id", usuariosController.deleteUser);
 router.patch("/:id/status", usuariosController.toggleUserStatus);
 router.patch("/:id/permissions", usuariosController.updateUserPermissions);
 
-// Rutas de tiendas - Solo lo necesario
+// Rutas de tiendas
 router.get("/tiendas/:tiendaId/limite", usuariosController.getMaxUsersForStore);
+
+// Ruta para obtener responsable del negocio
+router.get("/negocio/:negocioId/responsable", usuariosController.getNegocioResponsable);
+
+// Ruta para eliminar un usuario de una tienda específica (para medidores)
+router.delete("/:userId/tienda/:tiendaId", usuariosController.deleteUserFromStore);
 
 module.exports = router;

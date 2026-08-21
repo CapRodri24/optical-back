@@ -30,6 +30,10 @@ const getRoleId = (roleName) => {
   return id;
 };
 
+const getRoleName = (roleId) => {
+  return ROL_NAMES[roleId] || "Desconocido";
+};
+
 const getPermissionsForUser = async (userId, roleId) => {
   const defaultPerms = await query(
     `SELECT p.nombre 
@@ -94,38 +98,29 @@ const getUsers = async (tiendaId, negocioId) => {
       INNER JOIN rol r ON u.id_rol = r.id_rol
       LEFT JOIN persona_negocio pn ON p.id_persona = pn.id_persona
       WHERE u.estado != 'eliminado'
+        AND u.id_usuario IN (
+          SELECT ut.id_usuario 
+          FROM usuario_tienda ut
+          INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
     `;
 
     const params = [];
 
     if (negocioId) {
-      queryText += `
-        AND u.id_usuario IN (
-          SELECT ut.id_usuario 
-          FROM usuario_tienda ut
-          INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
-          WHERE t.id_negocio = $1
-          UNION
-          SELECT u.id_usuario
-          FROM usuario u
-          INNER JOIN persona p ON u.id_persona = p.id_persona
-          INNER JOIN persona_negocio pn ON p.id_persona = pn.id_persona
-          WHERE pn.id_negocio = $1
-        )
-      `;
+      queryText += ` WHERE t.id_negocio = $1`;
       params.push(negocioId);
     }
 
     if (tiendaId) {
-      queryText += `
-        AND u.id_usuario IN (
-          SELECT ut.id_usuario 
-          FROM usuario_tienda ut 
-          WHERE ut.id_tienda = $${params.length + 1}
-        )
-      `;
+      if (negocioId) {
+        queryText += ` AND t.id_tienda = $${params.length + 1}`;
+      } else {
+        queryText += ` WHERE t.id_tienda = $${params.length + 1}`;
+      }
       params.push(tiendaId);
     }
+
+    queryText += ` )`;
 
     queryText += ` ORDER BY p.nombre ASC`;
 
@@ -144,7 +139,6 @@ const getUsers = async (tiendaId, negocioId) => {
 
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
-      // CONVERTIR estado de la BD (activo/inactivo) a (active/inactive)
       const statusMap = {
         'activo': 'active',
         'inactivo': 'inactive',
@@ -329,7 +323,6 @@ const updateUser = async (userId, userData) => {
         paramCount++;
       }
       if (status) {
-        // Convertir de 'active'/'inactive' a 'activo'/'inactivo' para la BD
         const statusMap = {
           'active': 'activo',
           'inactive': 'inactivo',
@@ -581,6 +574,122 @@ const getMaxUsersForStore = async (tiendaId) => {
   }
 };
 
+// ============================================
+// NEGOCIO - Responsable
+// ============================================
+
+const getNegocioResponsable = async (negocioId) => {
+  try {
+    if (!negocioId) return null;
+    const result = await query(
+      `SELECT responsable_id FROM negocio WHERE id_negocio = $1`,
+      [negocioId]
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0].responsable_id;
+  } catch (error) {
+    console.error("Error en getNegocioResponsable:", error);
+    return null;
+  }
+};
+
+// ============================================
+// ELIMINAR USUARIO DE TIENDA (para medidores)
+// ============================================
+
+const deleteUserFromStore = async (userId, tiendaId) => {
+  try {
+    // Verificar que el usuario existe
+    const userCheck = await query(
+      'SELECT id_usuario, id_rol FROM usuario WHERE id_usuario = $1 AND estado != \'eliminado\'',
+      [userId]
+    );
+    if (userCheck.rows.length === 0) {
+      throw new Error("Usuario no encontrado");
+    }
+
+    const user = userCheck.rows[0];
+
+    // Verificar que el usuario sea un medidor
+    if (user.id_rol !== 4) {
+      throw new Error("Solo se pueden eliminar medidores de tiendas");
+    }
+
+    // Verificar que la tienda existe
+    const tiendaCheck = await query(
+      'SELECT id_tienda, id_negocio FROM tienda WHERE id_tienda = $1',
+      [tiendaId]
+    );
+    if (tiendaCheck.rows.length === 0) {
+      throw new Error("Tienda no encontrada");
+    }
+
+    // Verificar que el medidor tiene la tienda asignada
+    const assignCheck = await query(
+      'SELECT id_usuario_tienda FROM usuario_tienda WHERE id_usuario = $1 AND id_tienda = $2',
+      [userId, tiendaId]
+    );
+    if (assignCheck.rows.length === 0) {
+      throw new Error("El medidor no está asignado a esta tienda");
+    }
+
+    // Eliminar la asignación
+    await query(
+      'DELETE FROM usuario_tienda WHERE id_usuario = $1 AND id_tienda = $2',
+      [userId, tiendaId]
+    );
+
+    // Verificar si el medidor tiene otras tiendas asignadas en este negocio
+    const negocioId = tiendaCheck.rows[0].id_negocio;
+    const remainingTiendas = await query(
+      `SELECT ut.id_tienda 
+       FROM usuario_tienda ut
+       INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
+       WHERE ut.id_usuario = $1 AND t.id_negocio = $2`,
+      [userId, negocioId]
+    );
+
+    // Si no tiene más tiendas en este negocio, eliminar persona_negocio
+    if (remainingTiendas.rows.length === 0) {
+      // Obtener id_persona del usuario
+      const personaResult = await query(
+        'SELECT id_persona FROM usuario WHERE id_usuario = $1',
+        [userId]
+      );
+      if (personaResult.rows.length > 0) {
+        const idPersona = personaResult.rows[0].id_persona;
+        
+        // Eliminar persona_negocio de este negocio
+        await query(
+          'DELETE FROM persona_negocio WHERE id_persona = $1 AND id_negocio = $2',
+          [idPersona, negocioId]
+        );
+        console.log(`Persona-Negocio eliminado para el medidor ${userId} en el negocio ${negocioId}`);
+      }
+
+      // Verificar si el medidor tiene tiendas en otros negocios
+      const otrasTiendas = await query(
+        'SELECT id_tienda FROM usuario_tienda WHERE id_usuario = $1',
+        [userId]
+      );
+      
+      // Si no tiene más tiendas en ningún negocio, desactivar al medidor
+      if (otrasTiendas.rows.length === 0) {
+        await query(
+          "UPDATE usuario SET estado = 'inactivo' WHERE id_usuario = $1",
+          [userId]
+        );
+        console.log(`Medidor ${userId} desactivado porque no tiene más tiendas asignadas`);
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error en deleteUserFromStore:", error);
+    throw error;
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -590,4 +699,6 @@ module.exports = {
   updateUserPermissions,
   getUserStats,
   getMaxUsersForStore,
+  getNegocioResponsable,
+  deleteUserFromStore,
 };

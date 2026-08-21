@@ -88,13 +88,12 @@ const getUserById = async (userId) => {
         r.nombre as role,
         u.estado as status,
         p.celular as phoneNumber,
-        pn.carnet_persona as carnet,
-        u.password
+        pn.carnet_persona as carnet
       FROM usuario u
       INNER JOIN persona p ON u.id_persona = p.id_persona
       INNER JOIN rol r ON u.id_rol = r.id_rol
       LEFT JOIN persona_negocio pn ON p.id_persona = pn.id_persona
-      WHERE u.id_usuario = $1`,
+      WHERE u.id_usuario = $1 AND u.estado != 'eliminado'`,
       [userId]
     );
 
@@ -113,13 +112,18 @@ const getUserById = async (userId) => {
 
     const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
+    const statusMap = {
+      'activo': 'active',
+      'inactivo': 'inactive',
+    };
+
     return {
       id: row.id,
       username: row.username,
       name: row.name || "",
       lastname: row.lastname || "",
       role: row.role,
-      status: row.status || "active",
+      status: statusMap[row.status] || 'inactive',
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
       tiendaIds: tiendas.map(t => t.id),
@@ -154,13 +158,12 @@ const findUserByCarnet = async (carnet) => {
         r.nombre as role,
         u.estado as status,
         p.celular as phoneNumber,
-        pn.carnet_persona as carnet,
-        u.password
+        pn.carnet_persona as carnet
       FROM persona_negocio pn
       INNER JOIN persona p ON p.id_persona = pn.id_persona
       LEFT JOIN usuario u ON u.id_persona = p.id_persona
       LEFT JOIN rol r ON r.id_rol = u.id_rol
-      WHERE pn.carnet_persona = $1`,
+      WHERE pn.carnet_persona = $1 AND u.estado != 'eliminado'`,
       [carnet.trim().toUpperCase()]
     );
 
@@ -180,13 +183,18 @@ const findUserByCarnet = async (carnet) => {
 
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
+      const statusMap = {
+        'activo': 'active',
+        'inactivo': 'inactive',
+      };
+
       return {
         id: row.id,
         username: row.username,
         name: row.name || "",
         lastname: row.lastname || "",
         role: row.role || "Usuario",
-        status: row.status || "active",
+        status: statusMap[row.status] || 'inactive',
         phoneNumber: row.phonenumber || "",
         carnet: row.carnet || "",
         tiendaIds: tiendas.map(t => t.id),
@@ -240,13 +248,13 @@ const getMaxUsersForStore = async (tiendaId) => {
   try {
     if (!tiendaId || tiendaId.trim() === "") return 1;
     const result = await query(
-      `SELECT precio FROM tienda WHERE id_tienda = $1`,
+      `SELECT cant_usuarios FROM tienda WHERE id_tienda = $1`,
       [tiendaId]
     );
     if (result.rows.length === 0) {
       return 1;
     }
-    return Math.max(1, Math.floor(parseFloat(result.rows[0].precio) / 100));
+    return parseInt(result.rows[0].cant_usuarios) || 1;
   } catch (error) {
     console.error("Error en getMaxUsersForStore:", error);
     return 1;
@@ -272,6 +280,10 @@ const canAddUserToStore = async (tiendaId) => {
   }
 };
 
+// ============================================
+// CREAR USUARIO
+// ============================================
+
 const createUser = async (userData) => {
   try {
     const {
@@ -285,21 +297,19 @@ const createUser = async (userData) => {
       tiendaId,
       tiendaIds,
       role,
-      negocioId,
     } = userData;
 
-    console.log("=== Formulario - createUser ===");
+    console.log("=== createUser ===");
     console.log("Datos recibidos:", { 
       carnet, 
       nombres, 
       apellidos, 
       role, 
       tiendaId, 
-      tiendaIds, 
-      negocioId 
+      tiendaIds 
     });
 
-    // Verificar si la persona ya existe
+    // 1. Verificar si la persona ya existe por carnet
     const carnetCheck = await query(
       `SELECT p.id_persona, u.id_usuario, u.id_rol
        FROM persona_negocio pn
@@ -319,15 +329,11 @@ const createUser = async (userData) => {
       
       if (existingUserId) {
         const roleName = getRoleName(row.id_rol);
-        if (roleName === "Medidor") {
-          throw new Error("Medidor ya registrado. Consulte con soporte para agregarlo a su tienda.");
-        } else {
-          throw new Error("Usuario ya registrado. Esta persona ya cuenta con acceso al sistema. Consulte con soporte si tiene algún problema.");
-        }
+        throw new Error(`Usuario ya registrado como "${roleName}". Consulte con soporte si tiene algún problema.`);
       }
     }
 
-    // Verificar si el nombre de usuario ya está tomado
+    // 2. Verificar si el nombre de usuario ya está tomado
     const usernameTaken = await isUsernameTaken(usuario);
     if (usernameTaken) {
       throw new Error(`El nombre de usuario "${usuario}" ya está en uso`);
@@ -335,7 +341,7 @@ const createUser = async (userData) => {
 
     const fullPhone = `${countryCode} ${phoneNumber}`;
     
-    // Si la persona no existe, crearla
+    // 3. Crear o actualizar persona
     if (!idPersona) {
       const personaResult = await query(
         `INSERT INTO persona (nombre, apellido, celular) 
@@ -346,7 +352,6 @@ const createUser = async (userData) => {
       idPersona = personaResult.rows[0].id_persona;
       console.log("Persona creada ID:", idPersona);
     } else {
-      // Actualizar datos de la persona existente
       await query(
         `UPDATE persona SET nombre = $1, apellido = $2, celular = $3 WHERE id_persona = $4`,
         [nombres.trim(), apellidos.trim(), fullPhone, idPersona]
@@ -354,12 +359,13 @@ const createUser = async (userData) => {
       console.log("Persona actualizada ID:", idPersona);
     }
 
+    // 4. Obtener roleId
     const roleId = getRoleId(role);
 
+    // 5. Crear usuario
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(contraseña, saltRounds);
 
-    // Crear usuario con estado ACTIVO
     const usuarioResult = await query(
       `INSERT INTO usuario (id_persona, id_rol, usuario, password, estado) 
        VALUES ($1, $2, $3, $4, 'activo') 
@@ -367,27 +373,38 @@ const createUser = async (userData) => {
       [idPersona, roleId, usuario.trim().toLowerCase(), hashedPassword]
     );
     const idUsuario = usuarioResult.rows[0].id_usuario;
-    console.log("Usuario creado ID:", idUsuario, "con estado: activo");
+    console.log("Usuario creado ID:", idUsuario);
 
-    // Obtener el negocio de la tienda seleccionada
+    // 6. Obtener el negocio de la primera tienda
     let negocioIdToUse = null;
-    let tiendaParaAsignar = null;
+    let tiendasAsignar = [];
 
-    // Determinar la tienda a usar
-    if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
-      tiendaParaAsignar = tiendaId;
-    } else if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
-      const firstValidTienda = tiendaIds.find(id => id && typeof id === 'string' && id.trim() !== "");
-      if (firstValidTienda) {
-        tiendaParaAsignar = firstValidTienda;
+    // Determinar las tiendas a asignar según el rol
+    if (role === "Vendedor") {
+      // Vendedor: UNA sola tienda
+      if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+        tiendasAsignar = [tiendaId];
+      } else {
+        throw new Error("El vendedor debe tener una tienda asignada");
+      }
+    } else if (role === "Administrador" || role === "Medidor") {
+      // Administrador o Medidor: UNA O MÁS tiendas
+      if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
+        tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
+      } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+        tiendasAsignar = [tiendaId];
+      } else {
+        throw new Error(`El ${role} debe tener al menos una tienda asignada`);
       }
     }
 
-    // Obtener el negocio de la tienda
-    if (tiendaParaAsignar) {
+    console.log("Tiendas a asignar:", tiendasAsignar);
+
+    // Obtener el negocio de la primera tienda
+    if (tiendasAsignar.length > 0) {
       const negocioResult = await query(
         `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
-        [tiendaParaAsignar]
+        [tiendasAsignar[0]]
       );
       if (negocioResult.rows.length > 0) {
         negocioIdToUse = negocioResult.rows[0].id_negocio;
@@ -395,72 +412,37 @@ const createUser = async (userData) => {
       }
     }
 
-    // Si no se obtuvo negocio de la tienda, usar negocioId proporcionado
-    if (!negocioIdToUse && negocioId && typeof negocioId === 'string' && negocioId.trim() !== "") {
-      negocioIdToUse = negocioId;
-      console.log("Usando negocioId proporcionado:", negocioIdToUse);
+    if (!negocioIdToUse) {
+      console.warn("No se pudo obtener negocioId - sin tienda disponible");
     }
 
-    // Verificar si ya existe persona_negocio
+    // 7. Crear persona_negocio (si no existe)
     const carnetExistente = await query(
       'SELECT id_persona_negocio FROM persona_negocio WHERE carnet_persona = $1',
       [carnet.trim().toUpperCase()]
     );
 
-    // ============================================
-    // CREAR PERSONA_NEGOCIO (para todos los roles)
-    // ============================================
     if (carnetExistente.rows.length === 0 && negocioIdToUse) {
       await query(
         `INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) 
          VALUES ($1, $2, $3)`,
         [idPersona, negocioIdToUse, carnet.trim().toUpperCase()]
       );
-      console.log("Persona-Negocio creado para", role, "con negocio:", negocioIdToUse);
+      console.log("Persona-Negocio creado con negocio:", negocioIdToUse);
     } else if (carnetExistente.rows.length === 0) {
       console.warn("No se pudo crear persona_negocio - sin negocioId disponible");
     }
 
-    // ============================================
-    // ASIGNAR SEGÚN EL ROL
-    // ============================================
-
-    // Para Vendedor o Administrador: asignar tienda usando usuario_tienda
-    if (role === "Vendedor" || role === "Administrador") {
-      let tiendasAsignar = [];
-      if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
-        tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
-      } else if (tiendaParaAsignar) {
-        tiendasAsignar = [tiendaParaAsignar];
-      }
-      
-      console.log("Tiendas a asignar para", role, ":", tiendasAsignar);
-      
-      for (const tid of tiendasAsignar) {
-        if (tid && typeof tid === 'string' && tid.trim() !== "") {
-          await query(
-            `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
-             VALUES ($1, $2)
-             ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
-            [idUsuario, tid]
-          );
-          console.log("Usuario-Tienda creado para", role, ":", tid);
-        }
-      }
-    }
-
-    // Para Medidor: asignar a medidor_negocio
-    if (role === "Medidor") {
-      if (negocioIdToUse) {
+    // 8. Asignar tiendas a usuario_tienda (TODOS los roles usan la misma tabla)
+    for (const tid of tiendasAsignar) {
+      if (tid && typeof tid === 'string' && tid.trim() !== "") {
         await query(
-          `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
+          `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
            VALUES ($1, $2)
-           ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
-          [idUsuario, negocioIdToUse]
+           ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
+          [idUsuario, tid]
         );
-        console.log("Medidor-Negocio creado para medidor:", idUsuario, "con negocio:", negocioIdToUse);
-      } else {
-        console.warn("No se pudo asignar medidor_negocio - sin negocioId disponible");
+        console.log("Usuario-Tienda creado:", tid);
       }
     }
 
@@ -470,6 +452,10 @@ const createUser = async (userData) => {
     throw error;
   }
 };
+
+// ============================================
+// ACTUALIZAR USUARIO
+// ============================================
 
 const updateUser = async (userId, userData) => {
   try {
@@ -483,13 +469,13 @@ const updateUser = async (userId, userData) => {
       tiendaId,
       tiendaIds,
       role,
-      negocioId,
       status,
     } = userData;
 
     console.log("=== updateUser ===");
-    console.log("Datos recibidos:", { userId, name, lastname, phoneNumber, username, carnet, password, tiendaId, tiendaIds, role, negocioId, status });
+    console.log("Datos recibidos:", { userId, name, lastname, phoneNumber, username, carnet, password, tiendaId, tiendaIds, role, status });
 
+    // 1. Verificar que el usuario existe
     const userCheck = await query(
       'SELECT id_usuario, id_persona, id_rol FROM usuario WHERE id_usuario = $1',
       [userId]
@@ -499,11 +485,12 @@ const updateUser = async (userId, userData) => {
     }
     const user = userCheck.rows[0];
 
+    // 2. Si es Spider Admin, no se puede modificar
     if (user.id_rol === 1) {
       throw new Error("No se puede modificar un Spider Admin");
     }
 
-    // Actualizar persona
+    // 3. Actualizar persona (si hay cambios)
     if (name || lastname || phoneNumber) {
       const updates = [];
       const params = [];
@@ -535,7 +522,7 @@ const updateUser = async (userId, userData) => {
       }
     }
 
-    // Actualizar usuario
+    // 4. Actualizar usuario (username, password, status)
     if (username || password || status !== undefined) {
       const updates = [];
       const params = [];
@@ -558,29 +545,28 @@ const updateUser = async (userId, userData) => {
         paramCount++;
       }
       if (status !== undefined) {
-        // Asegurar que el estado sea válido para la BD (activo/inactivo/eliminado)
-        let validStatus = status;
-        if (status === 'active') {
-          validStatus = 'activo';
-        } else if (status === 'inactive') {
-          validStatus = 'inactivo';
-        }
+        // Convertir de 'active'/'inactive' a 'activo'/'inactivo' para la BD
+        const statusMap = {
+          'active': 'activo',
+          'inactive': 'inactivo',
+        };
         updates.push(`estado = $${paramCount}`);
-        params.push(validStatus);
+        params.push(statusMap[status] || 'inactivo');
         paramCount++;
-        console.log("Estado a actualizar:", validStatus);
+        console.log("Estado a actualizar:", statusMap[status] || 'inactivo');
       }
 
       if (updates.length > 0) {
         params.push(userId);
-        const queryText = `UPDATE usuario SET ${updates.join(', ')} WHERE id_usuario = $${paramCount}`;
-        console.log("Query usuario:", queryText, params);
-        await query(queryText, params);
+        await query(
+          `UPDATE usuario SET ${updates.join(', ')} WHERE id_usuario = $${paramCount}`,
+          params
+        );
         console.log("Usuario actualizado");
       }
     }
 
-    // Actualizar rol si se proporciona
+    // 5. Actualizar rol si se proporciona
     if (role) {
       const roleId = getRoleId(role);
       await query(
@@ -590,7 +576,7 @@ const updateUser = async (userId, userData) => {
       console.log("Rol actualizado a:", role);
     }
 
-    // Actualizar carnet en persona_negocio
+    // 6. Actualizar carnet en persona_negocio
     if (carnet) {
       const carnetExists = await query(
         'SELECT id_persona_negocio FROM persona_negocio WHERE id_persona = $1',
@@ -606,7 +592,8 @@ const updateUser = async (userId, userData) => {
       }
     }
 
-    // Obtener el rol actual del usuario
+    // 7. ACTUALIZAR TIENDAS - ELIMINAR TODAS Y VOLVER A CREAR
+    // Obtener el rol actual para saber cómo manejar las tiendas
     const currentRoleResult = await query(
       'SELECT id_rol FROM usuario WHERE id_usuario = $1',
       [userId]
@@ -614,51 +601,87 @@ const updateUser = async (userId, userData) => {
     const currentRoleId = currentRoleResult.rows[0]?.id_rol;
     const currentRoleName = getRoleName(currentRoleId);
 
-    // Actualizar tiendas según el rol
-    if (tiendaIds !== undefined || tiendaId !== undefined) {
-      // Eliminar todas las asignaciones de tienda actuales
-      await query(
-        'DELETE FROM usuario_tienda WHERE id_usuario = $1',
-        [userId]
-      );
-      console.log("Usuario_tienda eliminado");
+    console.log("Rol actual:", currentRoleName);
+    console.log("tiendaId recibido:", tiendaId);
+    console.log("tiendaIds recibido:", tiendaIds);
 
-      // Si es Medidor, actualizar medidor_negocio
-      if (currentRoleName === "Medidor") {
-        if (negocioId && typeof negocioId === 'string' && negocioId.trim() !== "") {
-          await query(
-            'DELETE FROM medidor_negocio WHERE id_medidor = $1',
-            [userId]
-          );
-          await query(
-            `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
-             VALUES ($1, $2)
-             ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
-            [userId, negocioId]
-          );
-          console.log("Medidor-Negocio actualizado:", negocioId);
+    // 7a. ELIMINAR todas las tiendas actuales del usuario
+    await query(
+      'DELETE FROM usuario_tienda WHERE id_usuario = $1',
+      [userId]
+    );
+    console.log("Usuario_tienda eliminado (todas las relaciones)");
+
+    // 7b. Determinar las nuevas tiendas a asignar según el rol
+    let tiendasAsignar = [];
+
+    if (role) {
+      // Si se está cambiando el rol, usar la lógica del nuevo rol
+      if (role === "Vendedor") {
+        // Vendedor: UNA sola tienda
+        if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          tiendasAsignar = [tiendaId];
         }
-      } else {
-        // Para Vendedor o Administrador, asignar tiendas
-        let tiendasAsignar = [];
+      } else if (role === "Administrador" || role === "Medidor") {
+        // Administrador o Medidor: UNA O MÁS tiendas
         if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
           tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
         } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
           tiendasAsignar = [tiendaId];
         }
+      }
+    } else {
+      // Si no se está cambiando el rol, usar la lógica del rol actual
+      if (currentRoleName === "Vendedor") {
+        if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          tiendasAsignar = [tiendaId];
+        }
+      } else if (currentRoleName === "Administrador" || currentRoleName === "Medidor") {
+        if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
+          tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
+        } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          tiendasAsignar = [tiendaId];
+        }
+      }
+    }
 
-        console.log("Tiendas a asignar:", tiendasAsignar);
+    console.log("Tiendas a asignar:", tiendasAsignar);
 
-        for (const tid of tiendasAsignar) {
-          if (tid && typeof tid === 'string' && tid.trim() !== "") {
-            await query(
-              `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
-               VALUES ($1, $2)
-               ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
-              [userId, tid]
-            );
-            console.log("Usuario-Tienda actualizado:", tid);
-          }
+    // 7c. CREAR las nuevas relaciones usuario_tienda
+    for (const tid of tiendasAsignar) {
+      if (tid && typeof tid === 'string' && tid.trim() !== "") {
+        await query(
+          `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
+           VALUES ($1, $2)
+           ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
+          [userId, tid]
+        );
+        console.log("Usuario-Tienda creado:", tid);
+      }
+    }
+
+    // 8. Si el rol cambió a Medidor, actualizar persona_negocio si es necesario
+    if (role === "Medidor" && tiendasAsignar.length > 0) {
+      // Obtener el negocio de la primera tienda
+      const negocioResult = await query(
+        `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
+        [tiendasAsignar[0]]
+      );
+      if (negocioResult.rows.length > 0) {
+        const negocioId = negocioResult.rows[0].id_negocio;
+        // Verificar si ya existe persona_negocio
+        const personaNegocioExists = await query(
+          'SELECT id_persona_negocio FROM persona_negocio WHERE id_persona = $1 AND id_negocio = $2',
+          [user.id_persona, negocioId]
+        );
+        if (personaNegocioExists.rows.length === 0) {
+          await query(
+            `INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) 
+             VALUES ($1, $2, $3)
+             ON CONFLICT (id_persona, id_negocio) DO NOTHING`,
+            [user.id_persona, negocioId, carnet || `USR-${userId}`]
+          );
+          console.log("Persona-Negocio creado para medidor");
         }
       }
     }

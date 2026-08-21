@@ -101,6 +101,36 @@ const getMaxUsersForStore = async (req, res) => {
   }
 };
 
+// ============================================
+// NEGOCIO - Responsable
+// ============================================
+
+const getNegocioResponsable = async (req, res) => {
+  try {
+    const { negocioId } = req.params;
+    const responsableId = await usuariosService.getNegocioResponsable(negocioId);
+    res.json({ success: true, responsableId });
+  } catch (error) {
+    console.error("Error en getNegocioResponsable:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================
+// ELIMINAR USUARIO DE TIENDA (para medidores)
+// ============================================
+
+const deleteUserFromStore = async (req, res) => {
+  try {
+    const { userId, tiendaId } = req.params;
+    const result = await usuariosService.deleteUserFromStore(userId, tiendaId);
+    res.json({ success: true, message: "Usuario eliminado de la tienda exitosamente" });
+  } catch (error) {
+    console.error("Error en deleteUserFromStore:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -110,4 +140,6 @@ module.exports = {
   updateUserPermissions,
   getUserStats,
   getMaxUsersForStore,
+  getNegocioResponsable,
+  deleteUserFromStore,
 };
