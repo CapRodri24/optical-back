@@ -124,6 +124,7 @@ const getUsers = async (tiendaId) => {
 
     const users = [];
     for (const row of result.rows) {
+      // Obtener todas las tiendas del usuario desde usuario_tienda
       const tiendasResult = await query(
         `SELECT t.id_tienda as id, t.nombre_tienda as nombre
          FROM usuario_tienda ut
@@ -133,7 +134,29 @@ const getUsers = async (tiendaId) => {
       );
       const tiendas = tiendasResult.rows;
 
+      // Para medidores, también obtener tiendas de medidor_negocio
+      let allTiendas = [...tiendas];
+      if (row.id_rol === 4) { // Medidor
+        const medidorResult = await query(
+          `SELECT t.id_tienda as id, t.nombre_tienda as nombre
+           FROM medidor_negocio mn
+           INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
+           WHERE mn.id_medidor = $1`,
+          [row.id]
+        );
+        // Combinar tiendas de usuario_tienda y medidor_negocio (evitar duplicados)
+        for (const mt of medidorResult.rows) {
+          if (!allTiendas.some(t => t.id === mt.id)) {
+            allTiendas.push(mt);
+          }
+        }
+      }
+
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
+
+      // Para el tiendaId principal, usar la primera tienda o null
+      const primaryTiendaId = allTiendas.length > 0 ? allTiendas[0].id : null;
+      const primaryTiendaNombre = allTiendas.length > 0 ? allTiendas[0].nombre : null;
 
       users.push({
         id: row.id,
@@ -144,16 +167,26 @@ const getUsers = async (tiendaId) => {
         status: row.status || "active",
         phoneNumber: row.phonenumber || "",
         carnet: row.carnet || "",
-        tiendaIds: tiendas.map(t => t.id),
-        tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
-        tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
+        tiendaIds: allTiendas.map(t => t.id),
+        tiendaId: primaryTiendaId,
+        tiendaNombre: primaryTiendaNombre,
         grantedPermissions: permissions.granted,
         revokedPermissions: permissions.revoked,
         password: row.password,
       });
     }
 
-    return users;
+    // Eliminar duplicados por id (por si acaso)
+    const uniqueUsers = [];
+    const seenIds = new Set();
+    for (const user of users) {
+      if (!seenIds.has(user.id)) {
+        seenIds.add(user.id);
+        uniqueUsers.push(user);
+      }
+    }
+
+    return uniqueUsers;
   } catch (error) {
     console.error("Error en getUsers:", error);
     throw error;
@@ -186,6 +219,7 @@ const getUserById = async (userId) => {
 
     const row = result.rows[0];
 
+    // Obtener todas las tiendas del usuario desde usuario_tienda
     const tiendasResult = await query(
       `SELECT t.id_tienda as id, t.nombre_tienda as nombre
        FROM usuario_tienda ut
@@ -195,7 +229,27 @@ const getUserById = async (userId) => {
     );
     const tiendas = tiendasResult.rows;
 
+    // Para medidores, también obtener tiendas de medidor_negocio
+    let allTiendas = [...tiendas];
+    if (row.id_rol === 4) { // Medidor
+      const medidorResult = await query(
+        `SELECT t.id_tienda as id, t.nombre_tienda as nombre
+         FROM medidor_negocio mn
+         INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
+         WHERE mn.id_medidor = $1`,
+        [row.id]
+      );
+      for (const mt of medidorResult.rows) {
+        if (!allTiendas.some(t => t.id === mt.id)) {
+          allTiendas.push(mt);
+        }
+      }
+    }
+
     const permissions = await getPermissionsForUser(row.id, row.id_rol);
+
+    const primaryTiendaId = allTiendas.length > 0 ? allTiendas[0].id : null;
+    const primaryTiendaNombre = allTiendas.length > 0 ? allTiendas[0].nombre : null;
 
     return {
       id: row.id,
@@ -206,9 +260,9 @@ const getUserById = async (userId) => {
       status: row.status || "active",
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
-      tiendaIds: tiendas.map(t => t.id),
-      tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
-      tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
+      tiendaIds: allTiendas.map(t => t.id),
+      tiendaId: primaryTiendaId,
+      tiendaNombre: primaryTiendaNombre,
       grantedPermissions: permissions.granted,
       revokedPermissions: permissions.revoked,
     };
@@ -250,6 +304,7 @@ const findUserByCarnet = async (carnet) => {
 
     if (!row.id) return null;
 
+    // Obtener todas las tiendas del usuario
     const tiendasResult = await query(
       `SELECT t.id_tienda as id, t.nombre_tienda as nombre
        FROM usuario_tienda ut
@@ -259,7 +314,26 @@ const findUserByCarnet = async (carnet) => {
     );
     const tiendas = tiendasResult.rows;
 
+    let allTiendas = [...tiendas];
+    if (row.id_rol === 4) {
+      const medidorResult = await query(
+        `SELECT t.id_tienda as id, t.nombre_tienda as nombre
+         FROM medidor_negocio mn
+         INNER JOIN tienda t ON t.id_negocio = mn.id_negocio
+         WHERE mn.id_medidor = $1`,
+        [row.id]
+      );
+      for (const mt of medidorResult.rows) {
+        if (!allTiendas.some(t => t.id === mt.id)) {
+          allTiendas.push(mt);
+        }
+      }
+    }
+
     const permissions = await getPermissionsForUser(row.id, row.id_rol);
+
+    const primaryTiendaId = allTiendas.length > 0 ? allTiendas[0].id : null;
+    const primaryTiendaNombre = allTiendas.length > 0 ? allTiendas[0].nombre : null;
 
     return {
       id: row.id,
@@ -270,9 +344,9 @@ const findUserByCarnet = async (carnet) => {
       status: row.status || "active",
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
-      tiendaIds: tiendas.map(t => t.id),
-      tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
-      tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
+      tiendaIds: allTiendas.map(t => t.id),
+      tiendaId: primaryTiendaId,
+      tiendaNombre: primaryTiendaNombre,
       grantedPermissions: permissions.granted,
       revokedPermissions: permissions.revoked,
     };
@@ -859,13 +933,13 @@ const getMaxUsersForStore = async (tiendaId) => {
   try {
     if (!tiendaId || tiendaId.trim() === "") return 1;
     const result = await query(
-      `SELECT precio FROM tienda WHERE id_tienda = $1`,
+      `SELECT cant_usuarios FROM tienda WHERE id_tienda = $1`,
       [tiendaId]
     );
     if (result.rows.length === 0) {
       return 1;
     }
-    return Math.max(1, Math.floor(parseFloat(result.rows[0].precio) / 100));
+    return parseInt(result.rows[0].cant_usuarios) || 1;
   } catch (error) {
     console.error("Error en getMaxUsersForStore:", error);
     return 1;
@@ -874,10 +948,9 @@ const getMaxUsersForStore = async (tiendaId) => {
 
 const setMaxUsersForStore = async (tiendaId, maxUsers) => {
   try {
-    const newPrecio = maxUsers * 100;
     await query(
-      `UPDATE tienda SET precio = $1 WHERE id_tienda = $2`,
-      [newPrecio, tiendaId]
+      `UPDATE tienda SET cant_usuarios = $1 WHERE id_tienda = $2`,
+      [maxUsers, tiendaId]
     );
   } catch (error) {
     console.error("Error en setMaxUsersForStore:", error);
