@@ -41,6 +41,9 @@ const crearTiendaRoutes = require("./src/routes/crearTiendaroutes");
 app.use("/api/crearTienda", crearTiendaRoutes);
 const usuariosRoutes = require("./src/routes/usuariosRoutes");
 app.use("/api/usuariosRoutes", usuariosRoutes);
+const formularioUserRoutes = require("./src/routes/formularioUserRoutes");
+app.use("/api/formulario-usuario", formularioUserRoutes);
+
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
