@@ -419,8 +419,9 @@ const deleteUser = async (userId) => {
 
     const user = userCheck.rows[0];
 
-    if (user.id_rol === 1 || user.id_rol === 2) {
-      throw new Error("No se puede eliminar un administrador");
+    // Solo Spider Admin no se puede eliminar
+    if (user.id_rol === 1) {
+      throw new Error("No se puede eliminar un Spider Admin");
     }
 
     await query("UPDATE usuario SET estado = 'eliminado' WHERE id_usuario = $1", [userId]);
@@ -444,8 +445,9 @@ const toggleUserStatus = async (userId) => {
 
     const user = userCheck.rows[0];
 
-    if (user.id_rol === 1 || user.id_rol === 2) {
-      throw new Error("No se puede cambiar el estado de un administrador");
+    // Solo Spider Admin no se puede cambiar estado
+    if (user.id_rol === 1) {
+      throw new Error("No se puede cambiar el estado de un Spider Admin");
     }
 
     const newStatus = user.estado === 'activo' ? 'inactivo' : 'activo';
@@ -471,8 +473,9 @@ const updateUserPermissions = async (userId, granted, revoked) => {
 
     const user = userCheck.rows[0];
 
-    if (user.id_rol === 1 || user.id_rol === 2) {
-      throw new Error("No se pueden modificar los permisos de administradores");
+    // Spider Admin y Medidor no se pueden modificar permisos
+    if (user.id_rol === 1 || user.id_rol === 4) {
+      throw new Error("No se pueden modificar los permisos de este usuario");
     }
 
     await query('DELETE FROM usuario_permiso WHERE id_usuario = $1', [userId]);
@@ -599,7 +602,6 @@ const getNegocioResponsable = async (negocioId) => {
 
 const deleteUserFromStore = async (userId, tiendaId) => {
   try {
-    // Verificar que el usuario existe
     const userCheck = await query(
       'SELECT id_usuario, id_rol FROM usuario WHERE id_usuario = $1 AND estado != \'eliminado\'',
       [userId]
@@ -610,12 +612,10 @@ const deleteUserFromStore = async (userId, tiendaId) => {
 
     const user = userCheck.rows[0];
 
-    // Verificar que el usuario sea un medidor
     if (user.id_rol !== 4) {
       throw new Error("Solo se pueden eliminar medidores de tiendas");
     }
 
-    // Verificar que la tienda existe
     const tiendaCheck = await query(
       'SELECT id_tienda, id_negocio FROM tienda WHERE id_tienda = $1',
       [tiendaId]
@@ -624,7 +624,6 @@ const deleteUserFromStore = async (userId, tiendaId) => {
       throw new Error("Tienda no encontrada");
     }
 
-    // Verificar que el medidor tiene la tienda asignada
     const assignCheck = await query(
       'SELECT id_usuario_tienda FROM usuario_tienda WHERE id_usuario = $1 AND id_tienda = $2',
       [userId, tiendaId]
@@ -633,13 +632,11 @@ const deleteUserFromStore = async (userId, tiendaId) => {
       throw new Error("El medidor no está asignado a esta tienda");
     }
 
-    // Eliminar la asignación
     await query(
       'DELETE FROM usuario_tienda WHERE id_usuario = $1 AND id_tienda = $2',
       [userId, tiendaId]
     );
 
-    // Verificar si el medidor tiene otras tiendas asignadas en este negocio
     const negocioId = tiendaCheck.rows[0].id_negocio;
     const remainingTiendas = await query(
       `SELECT ut.id_tienda 
@@ -649,9 +646,7 @@ const deleteUserFromStore = async (userId, tiendaId) => {
       [userId, negocioId]
     );
 
-    // Si no tiene más tiendas en este negocio, eliminar persona_negocio
     if (remainingTiendas.rows.length === 0) {
-      // Obtener id_persona del usuario
       const personaResult = await query(
         'SELECT id_persona FROM usuario WHERE id_usuario = $1',
         [userId]
@@ -659,7 +654,6 @@ const deleteUserFromStore = async (userId, tiendaId) => {
       if (personaResult.rows.length > 0) {
         const idPersona = personaResult.rows[0].id_persona;
         
-        // Eliminar persona_negocio de este negocio
         await query(
           'DELETE FROM persona_negocio WHERE id_persona = $1 AND id_negocio = $2',
           [idPersona, negocioId]
@@ -667,13 +661,11 @@ const deleteUserFromStore = async (userId, tiendaId) => {
         console.log(`Persona-Negocio eliminado para el medidor ${userId} en el negocio ${negocioId}`);
       }
 
-      // Verificar si el medidor tiene tiendas en otros negocios
       const otrasTiendas = await query(
         'SELECT id_tienda FROM usuario_tienda WHERE id_usuario = $1',
         [userId]
       );
       
-      // Si no tiene más tiendas en ningún negocio, desactivar al medidor
       if (otrasTiendas.rows.length === 0) {
         await query(
           "UPDATE usuario SET estado = 'inactivo' WHERE id_usuario = $1",
