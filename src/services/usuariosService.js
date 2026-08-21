@@ -144,13 +144,19 @@ const getUsers = async (tiendaId, negocioId) => {
 
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
+      // CONVERTIR estado de la BD (activo/inactivo) a (active/inactive)
+      const statusMap = {
+        'activo': 'active',
+        'inactivo': 'inactive',
+      };
+
       users.push({
         id: row.id,
         username: row.username,
         name: row.name || "",
         lastname: row.lastname || "",
         role: row.role,
-        status: row.status || "active",
+        status: statusMap[row.status] || 'inactive',
         phoneNumber: row.phonenumber || "",
         carnet: row.carnet || "",
         tiendaIds: tiendas.map(t => t.id),
@@ -213,13 +219,18 @@ const getUserById = async (userId) => {
 
     const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
+    const statusMap = {
+      'activo': 'active',
+      'inactivo': 'inactive',
+    };
+
     return {
       id: row.id,
       username: row.username,
       name: row.name || "",
       lastname: row.lastname || "",
       role: row.role,
-      status: row.status || "active",
+      status: statusMap[row.status] || 'inactive',
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
       tiendaIds: tiendas.map(t => t.id),
@@ -318,8 +329,13 @@ const updateUser = async (userId, userData) => {
         paramCount++;
       }
       if (status) {
+        // Convertir de 'active'/'inactive' a 'activo'/'inactivo' para la BD
+        const statusMap = {
+          'active': 'activo',
+          'inactive': 'inactivo',
+        };
         updates.push(`estado = $${paramCount}`);
-        params.push(status);
+        params.push(statusMap[status] || 'inactivo');
         paramCount++;
       }
 
