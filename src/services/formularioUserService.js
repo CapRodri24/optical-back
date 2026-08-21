@@ -168,33 +168,49 @@ const findUserByCarnet = async (carnet) => {
 
     const row = result.rows[0];
 
-    if (!row.id) return null;
+    if (row.id) {
+      const tiendasResult = await query(
+        `SELECT t.id_tienda as id, t.nombre_tienda as nombre
+         FROM usuario_tienda ut
+         INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
+         WHERE ut.id_usuario = $1`,
+        [row.id]
+      );
+      const tiendas = tiendasResult.rows;
 
-    const tiendasResult = await query(
-      `SELECT t.id_tienda as id, t.nombre_tienda as nombre
-       FROM usuario_tienda ut
-       INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
-       WHERE ut.id_usuario = $1`,
-      [row.id]
-    );
-    const tiendas = tiendasResult.rows;
+      const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
-    const permissions = await getPermissionsForUser(row.id, row.id_rol);
+      return {
+        id: row.id,
+        username: row.username,
+        name: row.name || "",
+        lastname: row.lastname || "",
+        role: row.role || "Usuario",
+        status: row.status || "active",
+        phoneNumber: row.phonenumber || "",
+        carnet: row.carnet || "",
+        tiendaIds: tiendas.map(t => t.id),
+        tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
+        tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
+        grantedPermissions: permissions.granted,
+        revokedPermissions: permissions.revoked,
+      };
+    }
 
     return {
-      id: row.id,
-      username: row.username,
+      id: null,
+      username: null,
       name: row.name || "",
       lastname: row.lastname || "",
-      role: row.role || "Usuario",
-      status: row.status || "active",
+      role: null,
+      status: null,
       phoneNumber: row.phonenumber || "",
       carnet: row.carnet || "",
-      tiendaIds: tiendas.map(t => t.id),
-      tiendaId: tiendas.length > 0 ? tiendas[0].id : null,
-      tiendaNombre: tiendas.length > 0 ? tiendas[0].nombre : null,
-      grantedPermissions: permissions.granted,
-      revokedPermissions: permissions.revoked,
+      tiendaIds: [],
+      tiendaId: null,
+      tiendaNombre: null,
+      grantedPermissions: [],
+      revokedPermissions: [],
     };
   } catch (error) {
     console.error("Error en findUserByCarnet:", error);
@@ -269,13 +285,23 @@ const createUser = async (userData) => {
       tiendaId,
       tiendaIds,
       role,
+      negocioId,
     } = userData;
 
     console.log("=== Formulario - createUser ===");
-    console.log("Datos:", { carnet, nombres, apellidos, role, tiendaId, tiendaIds });
+    console.log("Datos recibidos:", { 
+      carnet, 
+      nombres, 
+      apellidos, 
+      role, 
+      tiendaId, 
+      tiendaIds, 
+      negocioId 
+    });
 
+    // Verificar si la persona ya existe
     const carnetCheck = await query(
-      `SELECT p.id_persona, u.id_usuario 
+      `SELECT p.id_persona, u.id_usuario, u.id_rol
        FROM persona_negocio pn
        INNER JOIN persona p ON p.id_persona = pn.id_persona
        LEFT JOIN usuario u ON u.id_persona = p.id_persona
@@ -283,33 +309,57 @@ const createUser = async (userData) => {
       [carnet.trim().toUpperCase()]
     );
 
+    let idPersona = null;
+    let existingUserId = null;
+
     if (carnetCheck.rows.length > 0) {
       const row = carnetCheck.rows[0];
-      if (row.id_usuario) {
-        throw new Error("Esta persona ya cuenta con acceso al sistema, consulte con soporte si tiene algún problema");
+      idPersona = row.id_persona;
+      existingUserId = row.id_usuario;
+      
+      if (existingUserId) {
+        const roleName = getRoleName(row.id_rol);
+        if (roleName === "Medidor") {
+          throw new Error("Medidor ya registrado. Consulte con soporte para agregarlo a su tienda.");
+        } else {
+          throw new Error("Usuario ya registrado. Esta persona ya cuenta con acceso al sistema. Consulte con soporte si tiene algún problema.");
+        }
       }
     }
 
+    // Verificar si el nombre de usuario ya está tomado
     const usernameTaken = await isUsernameTaken(usuario);
     if (usernameTaken) {
       throw new Error(`El nombre de usuario "${usuario}" ya está en uso`);
     }
 
     const fullPhone = `${countryCode} ${phoneNumber}`;
-    const personaResult = await query(
-      `INSERT INTO persona (nombre, apellido, celular) 
-       VALUES ($1, $2, $3) 
-       RETURNING id_persona`,
-      [nombres.trim(), apellidos.trim(), fullPhone]
-    );
-    const idPersona = personaResult.rows[0].id_persona;
-    console.log("Persona creada ID:", idPersona);
+    
+    // Si la persona no existe, crearla
+    if (!idPersona) {
+      const personaResult = await query(
+        `INSERT INTO persona (nombre, apellido, celular) 
+         VALUES ($1, $2, $3) 
+         RETURNING id_persona`,
+        [nombres.trim(), apellidos.trim(), fullPhone]
+      );
+      idPersona = personaResult.rows[0].id_persona;
+      console.log("Persona creada ID:", idPersona);
+    } else {
+      // Actualizar datos de la persona existente
+      await query(
+        `UPDATE persona SET nombre = $1, apellido = $2, celular = $3 WHERE id_persona = $4`,
+        [nombres.trim(), apellidos.trim(), fullPhone, idPersona]
+      );
+      console.log("Persona actualizada ID:", idPersona);
+    }
 
     const roleId = getRoleId(role);
 
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(contraseña, saltRounds);
 
+    // Crear usuario
     const usuarioResult = await query(
       `INSERT INTO usuario (id_persona, id_rol, usuario, password, estado) 
        VALUES ($1, $2, $3, $4, 'activo') 
@@ -319,62 +369,124 @@ const createUser = async (userData) => {
     const idUsuario = usuarioResult.rows[0].id_usuario;
     console.log("Usuario creado ID:", idUsuario);
 
+    // Verificar si ya existe persona_negocio
     const carnetExistente = await query(
       'SELECT id_persona_negocio FROM persona_negocio WHERE carnet_persona = $1',
       [carnet.trim().toUpperCase()]
     );
 
-    if (carnetExistente.rows.length === 0) {
-      const tiendaParaNegocio = tiendaIds && tiendaIds.length > 0 && tiendaIds[0] ? tiendaIds[0] : tiendaId;
+    // Para Vendedor o Administrador: asignar a tienda usando persona_negocio y usuario_tienda
+    if (role === "Vendedor" || role === "Administrador") {
+      // 1. Crear persona_negocio si no existe
+      if (carnetExistente.rows.length === 0) {
+        // Obtener el negocio de la tienda seleccionada
+        let tiendaParaNegocio = null;
+        
+        if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          tiendaParaNegocio = tiendaId;
+        } else if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
+          const firstValidTienda = tiendaIds.find(id => id && typeof id === 'string' && id.trim() !== "");
+          if (firstValidTienda) {
+            tiendaParaNegocio = firstValidTienda;
+          }
+        }
+        
+        console.log("tiendaParaNegocio:", tiendaParaNegocio);
+        
+        if (tiendaParaNegocio) {
+          const negocioResult = await query(
+            `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
+            [tiendaParaNegocio]
+          );
+          if (negocioResult.rows.length > 0) {
+            await query(
+              `INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) 
+               VALUES ($1, $2, $3)`,
+              [idPersona, negocioResult.rows[0].id_negocio, carnet.trim().toUpperCase()]
+            );
+            console.log("Persona-Negocio creado para", role);
+          }
+        }
+      }
+
+      // 2. Asignar tiendas usando usuario_tienda
+      let tiendasAsignar = [];
+      if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
+        tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
+      } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+        tiendasAsignar = [tiendaId];
+      }
       
-      if (tiendaParaNegocio && tiendaParaNegocio.trim() !== "") {
-        const negocioResult = await query(
-          `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
-          [tiendaParaNegocio]
-        );
-        if (negocioResult.rows.length > 0) {
+      console.log("Tiendas a asignar:", tiendasAsignar);
+      
+      for (const tid of tiendasAsignar) {
+        if (tid && typeof tid === 'string' && tid.trim() !== "") {
+          // Usar INSERT ... ON CONFLICT DO NOTHING para evitar duplicados
+          await query(
+            `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
+             VALUES ($1, $2)
+             ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
+            [idUsuario, tid]
+          );
+          console.log("Usuario-Tienda creado para", role, ":", tid);
+        }
+      }
+    }
+
+    // Para Medidor: no se asigna tienda, se asigna negocio con medidor_negocio
+    if (role === "Medidor") {
+      // 1. Crear persona_negocio si no existe
+      if (carnetExistente.rows.length === 0) {
+        let negocioIdToUse = null;
+        
+        if (negocioId && typeof negocioId === 'string' && negocioId.trim() !== "") {
+          negocioIdToUse = negocioId;
+        } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          // Obtener negocio de la tienda
+          const tiendaNegocioResult = await query(
+            `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
+            [tiendaId]
+          );
+          if (tiendaNegocioResult.rows.length > 0) {
+            negocioIdToUse = tiendaNegocioResult.rows[0].id_negocio;
+          }
+        }
+        
+        if (negocioIdToUse) {
           await query(
             `INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) 
              VALUES ($1, $2, $3)`,
-            [idPersona, negocioResult.rows[0].id_negocio, carnet.trim().toUpperCase()]
+            [idPersona, negocioIdToUse, carnet.trim().toUpperCase()]
           );
-          console.log("Persona-Negocio creado");
+          console.log("Persona-Negocio creado para Medidor con negocio:", negocioIdToUse);
         }
       }
-    }
 
-    const tiendasAsignar = tiendaIds && tiendaIds.length > 0 
-      ? tiendaIds.filter(id => id && id.trim() !== "") 
-      : (tiendaId && tiendaId.trim() !== "" ? [tiendaId] : []);
-    
-    for (const tid of tiendasAsignar) {
-      if (tid && tid.trim() !== "") {
-        await query(
-          `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
-           VALUES ($1, $2)`,
-          [idUsuario, tid]
-        );
-        console.log("Usuario-Tienda creado:", tid);
-      }
-    }
-
-    if (role === "Medidor") {
-      const tiendaParaNegocio = tiendasAsignar.length > 0 ? tiendasAsignar[0] : null;
+      // 2. Asignar medidor al negocio usando medidor_negocio
+      let negocioIdToAssign = null;
       
-      if (tiendaParaNegocio && tiendaParaNegocio.trim() !== "") {
-        const negocioResult = await query(
+      if (negocioId && typeof negocioId === 'string' && negocioId.trim() !== "") {
+        negocioIdToAssign = negocioId;
+      } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+        const tiendaNegocioResult = await query(
           `SELECT id_negocio FROM tienda WHERE id_tienda = $1`,
-          [tiendaParaNegocio]
+          [tiendaId]
         );
-        if (negocioResult.rows.length > 0) {
-          await query(
-            `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
-             VALUES ($1, $2)
-             ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
-            [idUsuario, negocioResult.rows[0].id_negocio]
-          );
-          console.log("Medidor-Negocio creado");
+        if (tiendaNegocioResult.rows.length > 0) {
+          negocioIdToAssign = tiendaNegocioResult.rows[0].id_negocio;
         }
+      }
+      
+      if (negocioIdToAssign) {
+        await query(
+          `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
+           VALUES ($1, $2)
+           ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
+          [idUsuario, negocioIdToAssign]
+        );
+        console.log("Medidor-Negocio creado:", negocioIdToAssign);
+      } else {
+        console.warn("No se pudo asignar negocio al medidor - sin negocioId disponible");
       }
     }
 
@@ -396,6 +508,8 @@ const updateUser = async (userId, userData) => {
       password,
       tiendaId,
       tiendaIds,
+      role,
+      negocioId,
     } = userData;
 
     const userCheck = await query(
@@ -411,6 +525,7 @@ const updateUser = async (userId, userData) => {
       throw new Error("No se puede modificar un Spider Admin");
     }
 
+    // Actualizar persona
     if (name || lastname || phoneNumber) {
       const updates = [];
       const params = [];
@@ -441,6 +556,7 @@ const updateUser = async (userId, userData) => {
       }
     }
 
+    // Actualizar usuario
     if (username || password) {
       const updates = [];
       const params = [];
@@ -472,56 +588,80 @@ const updateUser = async (userId, userData) => {
       }
     }
 
-    if (carnet) {
+    // Actualizar rol si se proporciona
+    if (role) {
+      const roleId = getRoleId(role);
       await query(
-        `UPDATE persona_negocio SET carnet_persona = $1 
-         WHERE id_persona = $2`,
-        [carnet.trim().toUpperCase(), user.id_persona]
+        'UPDATE usuario SET id_rol = $1 WHERE id_usuario = $2',
+        [roleId, userId]
       );
     }
 
-    if (tiendaIds !== undefined || tiendaId !== undefined) {
-      const tiendasAsignar = tiendaIds && tiendaIds.length > 0 
-        ? tiendaIds.filter(id => id && id.trim() !== "") 
-        : (tiendaId && tiendaId.trim() !== "" ? [tiendaId] : []);
+    // Actualizar carnet en persona_negocio
+    if (carnet) {
+      const carnetExists = await query(
+        'SELECT id_persona_negocio FROM persona_negocio WHERE id_persona = $1',
+        [user.id_persona]
+      );
+      
+      if (carnetExists.rows.length > 0) {
+        await query(
+          `UPDATE persona_negocio SET carnet_persona = $1 WHERE id_persona = $2`,
+          [carnet.trim().toUpperCase(), user.id_persona]
+        );
+      }
+    }
 
+    // Obtener el rol actual del usuario
+    const currentRoleResult = await query(
+      'SELECT id_rol FROM usuario WHERE id_usuario = $1',
+      [userId]
+    );
+    const currentRoleId = currentRoleResult.rows[0]?.id_rol;
+    const currentRoleName = getRoleName(currentRoleId);
+
+    // Actualizar tiendas según el rol
+    if (tiendaIds !== undefined || tiendaId !== undefined) {
+      // Eliminar todas las asignaciones de tienda actuales
       await query(
         'DELETE FROM usuario_tienda WHERE id_usuario = $1',
         [userId]
       );
 
-      for (const tid of tiendasAsignar) {
-        if (tid && tid.trim() !== "") {
+      // Si es Medidor, no se asigna tienda
+      if (currentRoleName === "Medidor") {
+        // Actualizar medidor_negocio si se proporciona negocioId
+        if (negocioId && typeof negocioId === 'string' && negocioId.trim() !== "") {
           await query(
-            `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
-             VALUES ($1, $2)`,
-            [userId, tid]
+            'DELETE FROM medidor_negocio WHERE id_medidor = $1',
+            [userId]
           );
+          await query(
+            `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
+             VALUES ($1, $2)
+             ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
+            [userId, negocioId]
+          );
+          console.log("Medidor-Negocio actualizado:", negocioId);
         }
-      }
+      } else {
+        // Para Vendedor o Administrador, asignar tiendas
+        let tiendasAsignar = [];
+        if (tiendaIds && Array.isArray(tiendaIds) && tiendaIds.length > 0) {
+          tiendasAsignar = tiendaIds.filter(id => id && typeof id === 'string' && id.trim() !== "");
+        } else if (tiendaId && typeof tiendaId === 'string' && tiendaId.trim() !== "") {
+          tiendasAsignar = [tiendaId];
+        }
 
-      const roleResult = await query(
-        'SELECT id_rol FROM usuario WHERE id_usuario = $1',
-        [userId]
-      );
-      if (roleResult.rows.length > 0 && roleResult.rows[0].id_rol === 4) {
-        await query(
-          'DELETE FROM medidor_negocio WHERE id_medidor = $1',
-          [userId]
-        );
-        
-        if (tiendasAsignar.length > 0 && tiendasAsignar[0] && tiendasAsignar[0].trim() !== "") {
-          const negocioResult = await query(
-            'SELECT id_negocio FROM tienda WHERE id_tienda = $1',
-            [tiendasAsignar[0]]
-          );
-          if (negocioResult.rows.length > 0) {
+        for (const tid of tiendasAsignar) {
+          if (tid && typeof tid === 'string' && tid.trim() !== "") {
             await query(
-              `INSERT INTO medidor_negocio (id_medidor, id_negocio) 
+              `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
                VALUES ($1, $2)
-               ON CONFLICT (id_medidor, id_negocio) DO NOTHING`,
-              [userId, negocioResult.rows[0].id_negocio]
+               ON CONFLICT (id_usuario, id_tienda) DO NOTHING`,
+              [userId, tid]
             );
+            console.log("Usuario-Tienda actualizado:", tid);
           }
         }
       }

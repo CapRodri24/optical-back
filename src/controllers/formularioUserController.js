@@ -58,6 +58,7 @@ const canAddUserToStore = async (req, res) => {
 const createUser = async (req, res) => {
   try {
     const userData = req.body;
+    console.log("Datos recibidos en createUser controller:", userData);
     const newUser = await formularioUserService.createUser(userData);
     res.status(201).json({ success: true, user: newUser });
   } catch (error) {
@@ -70,6 +71,7 @@ const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
     const userData = req.body;
+    console.log("Datos recibidos en updateUser controller:", userData);
     const updatedUser = await formularioUserService.updateUser(id, userData);
     res.json({ success: true, user: updatedUser });
   } catch (error) {
