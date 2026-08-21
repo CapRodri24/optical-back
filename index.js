@@ -39,6 +39,8 @@ const loginRoutes = require("./src/routes/loginroutes");
 app.use("/api/login", loginRoutes);
 const crearTiendaRoutes = require("./src/routes/crearTiendaroutes");
 app.use("/api/crearTienda", crearTiendaRoutes);
+const usuariosRoutes = require("./src/routes/usuariosRoutes");
+app.use("/api/usuariosRoutes", usuariosRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
