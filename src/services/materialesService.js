@@ -181,24 +181,19 @@ const createMaterial = async (data, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // 1. Obtener o crear el tipo de material
-    let tipoMaterialResult = await query(
-      'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1',
-      [tipo]
+    // Obtener el tipo de material (debe existir)
+    const tipoMaterialResult = await query(
+      'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1 AND (id_negocio IS NULL OR id_negocio = $2)',
+      [tipo, negocioIdNum]
     );
 
-    let idTipoMaterial;
     if (tipoMaterialResult.rows.length === 0) {
-      const newType = await query(
-        'INSERT INTO tipo_material (nombre_tipo_material, es_sistema) VALUES ($1, false) RETURNING id_tipo_material',
-        [tipo]
-      );
-      idTipoMaterial = newType.rows[0].id_tipo_material;
-    } else {
-      idTipoMaterial = tipoMaterialResult.rows[0].id_tipo_material;
+      throw new Error(`El tipo "${tipo}" no existe o no pertenece a este negocio`);
     }
 
-    // 2. Crear el material
+    const idTipoMaterial = tipoMaterialResult.rows[0].id_tipo_material;
+
+    // Crear el material
     const materialResult = await query(
       `
       INSERT INTO material (
@@ -216,7 +211,7 @@ const createMaterial = async (data, negocioId) => {
 
     const idMaterial = materialResult.rows[0].id_material;
 
-    // 3. Asignar stock a las tiendas seleccionadas
+    // Asignar stock a las tiendas seleccionadas
     const tiendas = tiendasSeleccionadas || Object.keys(stockPorTienda || {});
     for (const tiendaId of tiendas) {
       const stock = stockPorTienda?.[tiendaId] || 0;
@@ -262,21 +257,16 @@ const updateMaterial = async (id, data, negocioId) => {
     }
 
     if (tipo && tipo !== existing.tipo) {
-      let tipoMaterialResult = await query(
-        'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1',
-        [tipo]
+      const tipoMaterialResult = await query(
+        'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1 AND (id_negocio IS NULL OR id_negocio = $2)',
+        [tipo, negocioIdNum]
       );
 
-      let idTipoMaterial;
       if (tipoMaterialResult.rows.length === 0) {
-        const newType = await query(
-          'INSERT INTO tipo_material (nombre_tipo_material, es_sistema) VALUES ($1, false) RETURNING id_tipo_material',
-          [tipo]
-        );
-        idTipoMaterial = newType.rows[0].id_tipo_material;
-      } else {
-        idTipoMaterial = tipoMaterialResult.rows[0].id_tipo_material;
+        throw new Error(`El tipo "${tipo}" no existe o no pertenece a este negocio`);
       }
+
+      const idTipoMaterial = tipoMaterialResult.rows[0].id_tipo_material;
 
       await query(
         'UPDATE material SET id_tipo_material = $1 WHERE id_material = $2',
@@ -504,9 +494,23 @@ const getMaterialTypes = async (negocioId) => {
     }
 
     const result = await query(
-      'SELECT nombre_tipo_material as nombre FROM tipo_material ORDER BY nombre_tipo_material'
+      `SELECT 
+        id_tipo_material,
+        nombre_tipo_material,
+        id_negocio,
+        es_sistema
+      FROM tipo_material 
+      WHERE id_negocio IS NULL OR id_negocio = $1
+      ORDER BY es_sistema DESC, nombre_tipo_material`,
+      [negocioIdNum]
     );
-    return result.rows.map(r => r.nombre);
+    
+    return result.rows.map(r => ({
+      id_tipo_material: r.id_tipo_material,
+      nombre_tipo_material: r.nombre_tipo_material,
+      id_negocio: r.id_negocio,
+      es_sistema: r.es_sistema
+    }));
   } catch (error) {
     console.error("Error en getMaterialTypes service:", error);
     return [];
@@ -532,8 +536,8 @@ const createMaterialType = async (nombre, negocioId) => {
     }
 
     await query(
-      'INSERT INTO tipo_material (nombre_tipo_material, es_sistema) VALUES ($1, false)',
-      [nombre]
+      'INSERT INTO tipo_material (nombre_tipo_material, id_negocio, es_sistema) VALUES ($1, $2, false)',
+      [nombre, negocioIdNum]
     );
 
     return await getMaterialTypes(negocioId);
@@ -553,12 +557,18 @@ const updateMaterialType = async (oldName, newName, negocioId) => {
     }
 
     const existing = await query(
-      'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1',
-      [oldName]
+      `SELECT id_tipo_material, es_sistema FROM tipo_material 
+       WHERE nombre_tipo_material = $1 AND (id_negocio IS NULL OR id_negocio = $2)`,
+      [oldName, negocioIdNum]
     );
 
     if (existing.rows.length === 0) {
       throw new Error("Tipo no encontrado");
+    }
+
+    const tipo = existing.rows[0];
+    if (tipo.es_sistema) {
+      throw new Error("No se pueden editar tipos de sistema");
     }
 
     if (oldName !== newName) {
@@ -594,17 +604,23 @@ const deleteMaterialType = async (nombre, negocioId) => {
     }
 
     const existing = await query(
-      'SELECT id_tipo_material FROM tipo_material WHERE nombre_tipo_material = $1',
-      [nombre]
+      `SELECT id_tipo_material, es_sistema FROM tipo_material 
+       WHERE nombre_tipo_material = $1 AND (id_negocio IS NULL OR id_negocio = $2)`,
+      [nombre, negocioIdNum]
     );
 
     if (existing.rows.length === 0) {
       throw new Error("Tipo no encontrado");
     }
 
+    const tipo = existing.rows[0];
+    if (tipo.es_sistema) {
+      throw new Error("No se pueden eliminar tipos de sistema");
+    }
+
     const materialsUsing = await query(
       'SELECT COUNT(*) as count FROM material WHERE id_tipo_material = $1 AND id_negocio = $2',
-      [existing.rows[0].id_tipo_material, negocioIdNum]
+      [tipo.id_tipo_material, negocioIdNum]
     );
 
     if (parseInt(materialsUsing.rows[0].count) > 0) {
@@ -613,7 +629,7 @@ const deleteMaterialType = async (nombre, negocioId) => {
 
     await query(
       'DELETE FROM tipo_material WHERE id_tipo_material = $1',
-      [existing.rows[0].id_tipo_material]
+      [tipo.id_tipo_material]
     );
 
     return await getMaterialTypes(negocioId);
