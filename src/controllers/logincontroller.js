@@ -21,7 +21,7 @@ const login = async (req, res) => {
 
     console.log("Resultado autenticación:", result.success);
     if (result.success) {
-      console.log("Tiendas en respuesta:", result.stores?.length || 0);
+      console.log("Tiendas activas en respuesta:", result.stores?.length || 0);
       console.log("Usuario tiendaIds:", result.user.tiendaIds);
       
       res.json({
@@ -33,9 +33,19 @@ const login = async (req, res) => {
         negocioId: result.negocioId
       });
     } else {
-      res.status(401).json({
+      // Mensaje específico según el error
+      let statusCode = 401;
+      let message = result.message;
+      
+      if (result.message === "Usuario inactivo") {
+        statusCode = 403; // Prohibido
+      } else if (result.message === "Usuario sin tiendas activas") {
+        statusCode = 403;
+      }
+      
+      res.status(statusCode).json({
         success: false,
-        message: result.message
+        message: message
       });
     }
   } catch (error) {
@@ -71,7 +81,7 @@ const verifyToken = async (req, res) => {
       const stores = await loginService.getUserStores(req.user.id_usuario);
       
       console.log("Usuario:", req.user.usuario);
-      console.log("Tiendas encontradas:", stores.length);
+      console.log("Tiendas activas encontradas:", stores.length);
       
       // Construir objeto de usuario para el frontend
       const userData = {
@@ -153,7 +163,7 @@ const getCurrentUser = async (req, res) => {
       const stores = await loginService.getUserStores(req.user.id_usuario);
       
       console.log("Usuario:", req.user.usuario);
-      console.log("Tiendas encontradas:", stores.length);
+      console.log("Tiendas activas encontradas:", stores.length);
       
       const userData = {
         id_usuario: req.user.id_usuario,

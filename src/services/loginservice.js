@@ -40,12 +40,12 @@ const authenticateUser = async (username, password) => {
     const user = result.rows[0];
     console.log("Usuario encontrado:", user.usuario, "Rol:", user.rol_nombre);
 
-    // 2. Verificar estado del usuario
+    // 2. Verificar estado del usuario (Mensaje específico)
     if (user.estado !== 'activo') {
       console.log("Usuario inactivo");
       return {
         success: false,
-        message: "Usuario inactivo"
+        message: "Usuario inactivo"  // Mensaje específico para usuario inactivo
       };
     }
 
@@ -56,45 +56,60 @@ const authenticateUser = async (username, password) => {
       console.log("Contraseña incorrecta");
       return {
         success: false,
-        message: "Contraseña incorrecta"
+        message: "Credenciales incorrectas"
       };
     }
 
     console.log("Contraseña correcta");
 
-    // 4. Obtener tiendas del usuario
-    const storesQuery = `
-      SELECT 
-        t.id_tienda,
-        t.nombre_tienda,
-        t.id_negocio,
-        n.nombre_negocio
-      FROM usuario_tienda ut
-      INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
-      INNER JOIN negocio n ON t.id_negocio = n.id_negocio
-      WHERE ut.id_usuario = $1
-    `;
-
-    const storesResult = await query(storesQuery, [user.id_usuario]);
-    console.log("Tiendas encontradas (usuario):", storesResult.rows.length);
+    // 4. Obtener tiendas del usuario SOLO ACTIVAS
+    let stores = [];
     
-    // Si es Spider Admin, obtener TODAS las tiendas
-    let stores = storesResult.rows;
+    // Si es Spider Admin, obtener TODAS las tiendas activas
     if (user.rol_nombre === 'Spider Admin') {
-      console.log("Es Spider Admin, obteniendo TODAS las tiendas");
+      console.log("Es Spider Admin, obteniendo TODAS las tiendas activas");
       const allStoresQuery = `
         SELECT 
           t.id_tienda,
           t.nombre_tienda,
           t.id_negocio,
-          n.nombre_negocio
+          n.nombre_negocio,
+          t.estado
         FROM tienda t
         INNER JOIN negocio n ON t.id_negocio = n.id_negocio
         WHERE t.estado = 'activo'
       `;
       const allStoresResult = await query(allStoresQuery);
       stores = allStoresResult.rows;
-      console.log("Tiendas totales (Spider Admin):", stores.length);
+      console.log("Tiendas activas totales (Spider Admin):", stores.length);
+    } else {
+      // Para otros roles, obtener solo tiendas activas
+      const storesQuery = `
+        SELECT 
+          t.id_tienda,
+          t.nombre_tienda,
+          t.id_negocio,
+          n.nombre_negocio,
+          t.estado
+        FROM usuario_tienda ut
+        INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
+        INNER JOIN negocio n ON t.id_negocio = n.id_negocio
+        WHERE ut.id_usuario = $1
+        AND t.estado = 'activo'
+      `;
+
+      const storesResult = await query(storesQuery, [user.id_usuario]);
+      stores = storesResult.rows;
+      console.log("Tiendas activas encontradas (usuario):", stores.length);
+    }
+
+    // Verificar si el usuario tiene al menos una tienda activa
+    if (stores.length === 0) {
+      console.log("El usuario no tiene tiendas activas");
+      return {
+        success: false,
+        message: "Usuario sin tiendas activas"
+      };
     }
 
     // 5. Obtener permisos del usuario
@@ -127,7 +142,7 @@ const authenticateUser = async (username, password) => {
     console.log("Permisos concedidos:", grantedPermissions);
     console.log("Permisos revocados:", revokedPermissions);
 
-    // 6. Generar token JWT - USANDO id_usuario (NO id)
+    // 6. Generar token JWT
     const token = jwt.sign(
       {
         id_usuario: user.id_usuario,
@@ -162,7 +177,7 @@ const authenticateUser = async (username, password) => {
     console.log("Datos de usuario a retornar:");
     console.log("- tiendaIds:", userData.tiendaIds);
     console.log("- tiendaNombre:", userData.tiendaNombre);
-    console.log("- stores:", userData.stores.length);
+    console.log("- stores activas:", userData.stores.length);
 
     return {
       success: true,
@@ -184,20 +199,23 @@ const getUserStores = async (userId) => {
     console.log("=== getUserStores ===");
     console.log("userId:", userId);
     
+    // Obtener solo tiendas activas
     const storesQuery = `
       SELECT 
         t.id_tienda,
         t.nombre_tienda,
         t.id_negocio,
-        n.nombre_negocio
+        n.nombre_negocio,
+        t.estado
       FROM usuario_tienda ut
       INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
       INNER JOIN negocio n ON t.id_negocio = n.id_negocio
       WHERE ut.id_usuario = $1
+      AND t.estado = 'activo'
     `;
 
     const result = await query(storesQuery, [userId]);
-    console.log("Tiendas encontradas:", result.rows.length);
+    console.log("Tiendas activas encontradas:", result.rows.length);
     return result.rows;
   } catch (error) {
     console.error("Error al obtener tiendas del usuario:", error);
