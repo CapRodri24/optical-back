@@ -45,7 +45,10 @@ const formularioUserRoutes = require("./src/routes/formularioUserRoutes");
 app.use("/api/formulario-usuario", formularioUserRoutes);
 const materialesRoutes = require("./src/routes/materialesRoutes");
 app.use("/api/materiales", materialesRoutes);
-
+const organicoRoutes = require("./src/routes/organicoRoutes");
+app.use("/api/organico", organicoRoutes);
+const organicoFormularioRoutes = require("./src/routes/organicoFormularioRoutes");
+app.use("/api/organico-formulario", organicoFormularioRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
