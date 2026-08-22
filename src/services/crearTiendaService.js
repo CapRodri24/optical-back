@@ -85,7 +85,16 @@ const crearTienda = async (tiendaData, responsableData) => {
     const idTienda = tiendaResult.rows[0].id_tienda;
     console.log("Tienda creada ID:", idTienda);
 
-    // 6. Crear USUARIO (rol Administrador = 2)
+    // 6. Crear CAJA para la tienda con nombre "Caja + (nombre tienda)"
+    const nombreCaja = `Caja ${tiendaData.nombre.trim()}`;
+    await query(
+      `INSERT INTO caja (id_tienda, nombre_caja, total, estado) 
+       VALUES ($1, $2, $3, $4)`,
+      [idTienda, nombreCaja, 0, 'cerrada']
+    );
+    console.log("Caja creada para tienda ID:", idTienda, "Nombre:", nombreCaja);
+
+    // 7. Crear USUARIO (rol Administrador = 2)
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(responsableData.contraseña, saltRounds);
 
@@ -98,7 +107,7 @@ const crearTienda = async (tiendaData, responsableData) => {
     const idUsuario = usuarioResult.rows[0].id_usuario;
     console.log("Usuario creado ID:", idUsuario);
 
-    // 7. Relacionar PERSONA con NEGOCIO (guardar carnet)
+    // 8. Relacionar PERSONA con NEGOCIO (guardar carnet)
     await query(
       `INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) 
        VALUES ($1, $2, $3)`,
@@ -106,7 +115,7 @@ const crearTienda = async (tiendaData, responsableData) => {
     );
     console.log("Persona-Negocio creado");
 
-    // 8. Relacionar USUARIO con TIENDA
+    // 9. Relacionar USUARIO con TIENDA
     await query(
       `INSERT INTO usuario_tienda (id_usuario, id_tienda) 
        VALUES ($1, $2)`,
