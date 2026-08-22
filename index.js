@@ -43,6 +43,8 @@ const usuariosRoutes = require("./src/routes/usuariosRoutes");
 app.use("/api/usuariosRoutes", usuariosRoutes);
 const formularioUserRoutes = require("./src/routes/formularioUserRoutes");
 app.use("/api/formulario-usuario", formularioUserRoutes);
+const materialesRoutes = require("./src/routes/materialesRoutes");
+app.use("/api/materiales", materialesRoutes);
 
 
 app.use((err, req, res, next) => {
