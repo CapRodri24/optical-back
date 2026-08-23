@@ -51,6 +51,8 @@ const organicoFormularioRoutes = require("./src/routes/organicoFormularioRoutes"
 app.use("/api/organico-formulario", organicoFormularioRoutes);
 const clientesRoutes = require("./src/routes/clientesRoutes");
 app.use("/api/clientes", clientesRoutes);
+const HistorialVentasRoutes = require("./src/routes/HistorialVentasRoutes");
+app.use("/api/historial-ventas", HistorialVentasRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
