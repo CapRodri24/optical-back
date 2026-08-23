@@ -2,10 +2,13 @@
 const { query } = require("../../db");
 
 /**
- * Obtener o crear una caja para una tienda
+ * Obtener o crear UNA caja para una tienda (SOLO UNA POR TIENDA)
  */
 const getOrCreateCaja = async (tiendaId) => {
   try {
+    console.log("=== getOrCreateCaja ===");
+    console.log("Buscando caja para tiendaId:", tiendaId);
+
     // Buscar caja existente
     let result = await query(
       `SELECT id_caja, id_tienda, nombre_caja, total, estado 
@@ -14,18 +17,27 @@ const getOrCreateCaja = async (tiendaId) => {
       [tiendaId]
     );
 
-    // Si no existe, crear una
-    if (result.rows.length === 0) {
-      const newCaja = await query(
-        `INSERT INTO caja (id_tienda, nombre_caja, total, estado) 
-         VALUES ($1, 'Caja Principal', 0, 'cerrada') 
-         RETURNING id_caja, id_tienda, nombre_caja, total, estado`,
-        [tiendaId]
-      );
-      return newCaja.rows[0];
+    console.log("Cajas encontradas:", result.rows.length);
+
+    // Si existe una caja, devolverla
+    if (result.rows.length > 0) {
+      console.log("✅ Caja existente encontrada ID:", result.rows[0].id_caja);
+      return result.rows[0];
     }
 
-    return result.rows[0];
+    // Si NO existe, crear UNA SOLA caja
+    console.log("⚠️ No se encontró caja, creando una nueva...");
+    
+    const newCaja = await query(
+      `INSERT INTO caja (id_tienda, nombre_caja, total, estado) 
+       VALUES ($1, 'Caja Principal', 0, 'cerrada') 
+       RETURNING id_caja, id_tienda, nombre_caja, total, estado`,
+      [tiendaId]
+    );
+
+    console.log("✅ Nueva caja creada ID:", newCaja.rows[0].id_caja);
+    return newCaja.rows[0];
+
   } catch (error) {
     console.error("Error en getOrCreateCaja:", error);
     throw new Error("Error al obtener/crear la caja");

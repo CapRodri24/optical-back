@@ -252,6 +252,7 @@ const abrirCaja = async (req, res) => {
     console.log("=== Abrir Caja ===");
     console.log("monto:", monto);
     console.log("tiendaId:", tiendaId);
+    console.log("userId:", userId);
 
     if (!tiendaId) {
       return res.status(400).json({
@@ -267,7 +268,6 @@ const abrirCaja = async (req, res) => {
       });
     }
 
-    // Permitir monto = 0
     if (monto === undefined || monto === null || monto < 0) {
       return res.status(400).json({
         success: false,
@@ -310,6 +310,7 @@ const cerrarCaja = async (req, res) => {
     console.log("=== Cerrar Caja ===");
     console.log("monto:", monto);
     console.log("tiendaId:", tiendaId);
+    console.log("userId:", userId);
 
     if (!tiendaId) {
       return res.status(400).json({
@@ -325,7 +326,6 @@ const cerrarCaja = async (req, res) => {
       });
     }
 
-    // Permitir monto = 0
     if (monto === undefined || monto === null || monto < 0) {
       return res.status(400).json({
         success: false,
