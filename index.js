@@ -55,6 +55,8 @@ const HistorialVentasRoutes = require("./src/routes/HistorialVentasRoutes");
 app.use("/api/historial-ventas", HistorialVentasRoutes);
 const PagosPendientesRoutes = require("./src/routes/PagosPendientesRoutes");
 app.use("/api/pagos-pendientes", PagosPendientesRoutes);
+const EntregasPendientesRoutes = require("./src/routes/EntregasPendientesRoutes");
+app.use("/api/entregas-pendientes", EntregasPendientesRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
