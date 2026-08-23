@@ -57,6 +57,8 @@ const PagosPendientesRoutes = require("./src/routes/PagosPendientesRoutes");
 app.use("/api/pagos-pendientes", PagosPendientesRoutes);
 const EntregasPendientesRoutes = require("./src/routes/EntregasPendientesRoutes");
 app.use("/api/entregas-pendientes", EntregasPendientesRoutes);
+const cajaRoutes = require("./src/routes/CajaRoutes");
+app.use("/api/caja", cajaRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
