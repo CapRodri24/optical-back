@@ -4,8 +4,17 @@ const historialVentasService = require("../services/HistorialVentasService");
 // ============================================
 // GET - OBTENER VENTAS CON FILTROS
 // ============================================
+
 const getVentas = async (req, res) => {
   try {
+    // Verificar autenticación (req.user es agregado por el middleware)
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     const {
       dateFilterType,
       specificDate,
@@ -14,9 +23,30 @@ const getVentas = async (req, res) => {
       selectedMetodoPago,
       searchTerm,
       tiendaId,
-      sortDirection = "desc"
+      sortDirection = "desc",
+      negocioId  // <--- RECIBIR DEL FRONTEND
     } = req.query;
 
+    console.log("🔍 getVentas - usuario:", req.user.usuario);
+    console.log("🔍 getVentas - negocioId recibido:", negocioId);
+
+    // Validar que negocioId exista
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    console.log("🔍 getVentas - userInfo:", userInfo);
     console.log("🔍 getVentas - filtros:", { dateFilterType, searchTerm, tiendaId });
 
     const ventas = await historialVentasService.getVentas({
@@ -28,7 +58,7 @@ const getVentas = async (req, res) => {
       searchTerm,
       tiendaId,
       sortDirection
-    });
+    }, userInfo);
 
     res.json({
       success: true,
@@ -44,13 +74,22 @@ const getVentas = async (req, res) => {
 };
 
 // ============================================
-// GET - OBTENER VENTA POR ID (DETALLE COMPLETO)
+// GET - OBTENER VENTA POR ID
 // ============================================
+
 const getVentaById = async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
 
-    console.log("🔍 getVentaById - id:", id);
+    const { id } = req.params;
+    const { negocioId, tiendaId } = req.query;
+
+    console.log("🔍 getVentaById - id:", id, "negocioId:", negocioId);
 
     if (!id || isNaN(Number(id))) {
       return res.status(400).json({
@@ -59,7 +98,22 @@ const getVentaById = async (req, res) => {
       });
     }
 
-    const venta = await historialVentasService.getVentaById(id);
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    const venta = await historialVentasService.getVentaById(id, userInfo);
 
     if (!venta) {
       return res.status(404).json({
@@ -84,9 +138,18 @@ const getVentaById = async (req, res) => {
 // ============================================
 // GET - OBTENER VENTAS POR CÓDIGO
 // ============================================
+
 const getVentasByCodigo = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     const { codigoVenta } = req.params;
+    const { negocioId, tiendaId } = req.query;
 
     console.log("🔍 getVentasByCodigo - codigoVenta:", codigoVenta);
 
@@ -97,7 +160,22 @@ const getVentasByCodigo = async (req, res) => {
       });
     }
 
-    const ventas = await historialVentasService.getVentasByCodigo(codigoVenta);
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    const ventas = await historialVentasService.getVentasByCodigo(codigoVenta, userInfo);
 
     res.json({
       success: true,
@@ -115,9 +193,18 @@ const getVentasByCodigo = async (req, res) => {
 // ============================================
 // GET - OBTENER VENTAS POR CLIENTE
 // ============================================
+
 const getVentasByCliente = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     const { clientName } = req.params;
+    const { negocioId, tiendaId } = req.query;
 
     console.log("🔍 getVentasByCliente - clientName:", clientName);
 
@@ -128,7 +215,22 @@ const getVentasByCliente = async (req, res) => {
       });
     }
 
-    const ventas = await historialVentasService.getVentasByCliente(clientName);
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    const ventas = await historialVentasService.getVentasByCliente(clientName, userInfo);
 
     res.json({
       success: true,
@@ -146,8 +248,16 @@ const getVentasByCliente = async (req, res) => {
 // ============================================
 // GET - RESUMEN DE VENTAS
 // ============================================
+
 const getResumenVentas = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     const {
       dateFilterType,
       specificDate,
@@ -155,10 +265,26 @@ const getResumenVentas = async (req, res) => {
       endDate,
       selectedMetodoPago,
       searchTerm,
-      tiendaId
+      tiendaId,
+      negocioId
     } = req.query;
 
-    console.log("🔍 getResumenVentas - filtros:", { dateFilterType, searchTerm, tiendaId });
+    console.log("🔍 getResumenVentas - negocioId recibido:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
 
     const resumen = await historialVentasService.getResumenVentas({
       dateFilterType,
@@ -168,7 +294,7 @@ const getResumenVentas = async (req, res) => {
       selectedMetodoPago,
       searchTerm,
       tiendaId
-    });
+    }, userInfo);
 
     res.json({
       success: true,
@@ -186,8 +312,16 @@ const getResumenVentas = async (req, res) => {
 // ============================================
 // GET - RESUMEN POR CLIENTE
 // ============================================
+
 const getResumenClientes = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     const {
       dateFilterType,
       specificDate,
@@ -196,10 +330,26 @@ const getResumenClientes = async (req, res) => {
       selectedMetodoPago,
       searchTerm,
       tiendaId,
-      tipoFiltro = "todos"
+      tipoFiltro = "todos",
+      negocioId
     } = req.query;
 
-    console.log("🔍 getResumenClientes - filtros:", { dateFilterType, searchTerm, tiendaId, tipoFiltro });
+    console.log("🔍 getResumenClientes - negocioId recibido:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
 
     const resumenClientes = await historialVentasService.getResumenClientes({
       dateFilterType,
@@ -210,7 +360,7 @@ const getResumenClientes = async (req, res) => {
       searchTerm,
       tiendaId,
       tipoFiltro
-    });
+    }, userInfo);
 
     res.json({
       success: true,
@@ -228,13 +378,34 @@ const getResumenClientes = async (req, res) => {
 // ============================================
 // GET - ESTADÍSTICAS RÁPIDAS
 // ============================================
+
 const getEstadisticasRapidas = async (req, res) => {
   try {
-    const { tiendaId } = req.query;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
 
-    console.log("🔍 getEstadisticasRapidas - tiendaId:", tiendaId);
+    const { tiendaId, negocioId } = req.query;
 
-    const estadisticas = await historialVentasService.getEstadisticasRapidas(tiendaId);
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    const estadisticas = await historialVentasService.getEstadisticasRapidas(tiendaId, userInfo);
 
     res.json({
       success: true,
@@ -252,11 +423,28 @@ const getEstadisticasRapidas = async (req, res) => {
 // ============================================
 // GET - TIENDAS DISPONIBLES
 // ============================================
+
 const getTiendas = async (req, res) => {
   try {
-    console.log("🔍 getTiendas");
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
 
-    const tiendas = await historialVentasService.getTiendas();
+    const { negocioId } = req.query;
+
+    console.log("🔍 getTiendas - negocioId recibido:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const tiendas = await historialVentasService.getTiendas(parseInt(negocioId));
 
     res.json({
       success: true,
@@ -274,8 +462,16 @@ const getTiendas = async (req, res) => {
 // ============================================
 // GET - MÉTODOS DE PAGO DISPONIBLES
 // ============================================
+
 const getMetodosPago = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     console.log("🔍 getMetodosPago");
 
     const metodos = await historialVentasService.getMetodosPago();
@@ -296,8 +492,16 @@ const getMetodosPago = async (req, res) => {
 // ============================================
 // GET - TIPOS DE FILTRO DE FECHA
 // ============================================
+
 const getTiposFiltroFecha = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
     console.log("🔍 getTiposFiltroFecha");
 
     const tipos = await historialVentasService.getTiposFiltroFecha();

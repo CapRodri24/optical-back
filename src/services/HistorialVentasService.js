@@ -128,7 +128,7 @@ const mapVentaToFrontend = (row) => {
 // GET - OBTENER VENTAS CON FILTROS
 // ============================================
 
-const getVentas = async (filtros) => {
+const getVentas = async (filtros, userInfo) => {
   try {
     const {
       dateFilterType,
@@ -137,11 +137,19 @@ const getVentas = async (filtros) => {
       endDate,
       selectedMetodoPago,
       searchTerm,
-      tiendaId,
+      tiendaId: tiendaIdFiltro,
       sortDirection = 'desc'
     } = filtros;
 
+    const { negocioId, tiendaId } = userInfo;
+
+    console.log("🔍 getVentas service - negocioId:", negocioId, "tiendaId:", tiendaId);
     console.log("🔍 getVentas service - filtros:", filtros);
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return [];
+    }
 
     let queryText = `
       SELECT 
@@ -162,16 +170,24 @@ const getVentas = async (filtros) => {
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
       LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
-      WHERE 1=1
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE t.id_negocio = $1
     `;
 
-    const params = [];
-    let paramIndex = 1;
+    const params = [parseInt(negocioId)];
+    let paramIndex = 2;
 
-    // Filtro por tienda
-    if (tiendaId) {
+    // Si el usuario tiene una tienda específica, filtrar por ella
+    if (tiendaId && tiendaId !== 'todas') {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
       params.push(parseInt(tiendaId));
+      paramIndex++;
+    }
+
+    // Si el frontend envía un filtro de tienda específico (para administradores)
+    if (tiendaIdFiltro && tiendaIdFiltro !== 'todas' && tiendaIdFiltro !== tiendaId) {
+      queryText += ` AND p.id_tienda = $${paramIndex}`;
+      params.push(parseInt(tiendaIdFiltro));
       paramIndex++;
     }
 
@@ -220,21 +236,20 @@ const getVentas = async (filtros) => {
       return [];
     }
 
-    // Mapear resultados al formato del frontend
     const ventas = result.rows.map(row => mapVentaToFrontend(row));
 
-    // Obtener lentes y productos adicionales para cada venta
     for (let venta of ventas) {
-      // Obtener lentes del pedido
+      // Obtener lentes del pedido con sus totales
       const lentesResult = await query(
         `
         SELECT 
           l.id_lente,
           l.tipo_lente,
-          o.nombre_organico as material,
+          o.nombre_organico as organico,
           m.nombre_material as frame,
           m2.nombre_material as franela,
-          m3.nombre_material as estuche
+          m3.nombre_material as estuche,
+          edl.total as total_lente
         FROM entrega_detalle_lente edl
         INNER JOIN lente l ON edl.id_lente = l.id_lente
         INNER JOIN entrega_pendiente ep ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
@@ -250,23 +265,20 @@ const getVentas = async (filtros) => {
       venta.lentes = lentesResult.rows.map(l => ({
         id: l.id_lente?.toString(),
         tipo: l.tipo_lente || 'No especificado',
-        material: l.material || 'Sin material',
-        precioMaterial: 0,
+        organico: l.organico || 'Sin orgánico',
         frame: l.frame || '',
-        precioFrame: 0,
         franela: l.franela || '',
-        precioFranela: 0,
         estuche: l.estuche || '',
-        precioEstuche: 0,
-        total: 0
+        total: parseFloat(l.total_lente || 0)
       }));
 
-      // Obtener productos adicionales (materiales)
+      // Obtener productos adicionales (materiales) con sus totales
       const materialesResult = await query(
         `
         SELECT 
           m.nombre_material,
-          edm.cantidad
+          edm.cantidad,
+          edm.total as total_material
         FROM entrega_detalle_material edm
         INNER JOIN material m ON edm.id_material = m.id_material
         INNER JOIN entrega_pendiente ep ON edm.id_entrega_pendiente = ep.id_entrega_pendiente
@@ -277,8 +289,8 @@ const getVentas = async (filtros) => {
 
       venta.productosAdicionales = materialesResult.rows.map(m => ({
         nombre: m.nombre_material,
-        precio: 0,
-        cantidad: m.cantidad || 1
+        cantidad: m.cantidad || 1,
+        total: parseFloat(m.total_material || 0)
       }));
     }
 
@@ -293,9 +305,11 @@ const getVentas = async (filtros) => {
 // GET - OBTENER VENTA POR ID (DETALLE COMPLETO)
 // ============================================
 
-const getVentaById = async (id) => {
+const getVentaById = async (id, userInfo) => {
   try {
-    console.log("🔍 getVentaById service - id:", id);
+    console.log("🔍 getVentaById service - id:", id, "userInfo:", userInfo);
+
+    const { negocioId, tiendaId } = userInfo;
 
     const idNum = parseInt(id);
     if (isNaN(idNum)) {
@@ -303,7 +317,12 @@ const getVentaById = async (id) => {
       return null;
     }
 
-    // 1. Obtener datos de la venta
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return null;
+    }
+
+    // 1. Obtener datos de la venta verificando que pertenezca al negocio
     const result = await query(
       `
       SELECT 
@@ -324,15 +343,14 @@ const getVentaById = async (id) => {
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
       LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
-      WHERE p.id_pedido = $1
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE p.id_pedido = $1 AND t.id_negocio = $2
       `,
-      [idNum]
+      [idNum, parseInt(negocioId)]
     );
 
-    console.log("📊 Resultado venta:", result.rows.length > 0 ? result.rows[0] : "No encontrado");
-
     if (result.rows.length === 0) {
-      console.log("❌ Venta no encontrada para ID:", idNum);
+      console.log("❌ Venta no encontrada o no pertenece al negocio:", idNum);
       return null;
     }
 
@@ -354,9 +372,7 @@ const getVentaById = async (id) => {
       items: []
     };
 
-    console.log("📦 Venta base:", venta);
-
-    // 2. Primero obtener la entrega_pendiente para este pedido
+    // 2. Obtener la entrega_pendiente
     const entregaResult = await query(
       `
       SELECT id_entrega_pendiente 
@@ -366,25 +382,18 @@ const getVentaById = async (id) => {
       [idNum]
     );
 
-    console.log("📊 Entrega encontrada:", entregaResult.rows);
-
-    if (entregaResult.rows.length === 0) {
-      console.log("⚠️ No se encontró entrega_pendiente para el pedido:", idNum);
-      // Si no hay entrega, intentar obtener lentes directamente del pedido
-      // (Esto puede pasar si la venta no tiene entrega asociada)
-    }
-
     const idEntrega = entregaResult.rows.length > 0 ? entregaResult.rows[0].id_entrega_pendiente : null;
 
-    // 3. Obtener lentes del pedido a través de entrega_detalle_lente
+    // 3. Obtener lentes con sus totales
     let lentesQuery = `
       SELECT 
         l.id_lente,
         l.tipo_lente,
-        o.nombre_organico as material,
+        o.nombre_organico as organico,
         m.nombre_material as frame,
         m2.nombre_material as franela,
-        m3.nombre_material as estuche
+        m3.nombre_material as estuche,
+        edl.total as total_lente
       FROM lente l
       LEFT JOIN organico o ON l.id_organico = o.id_organico
       LEFT JOIN material m ON l.id_montura = m.id_material
@@ -395,42 +404,28 @@ const getVentaById = async (id) => {
     let lentesParams = [];
 
     if (idEntrega) {
-      // Si hay entrega, buscar a través de entrega_detalle_lente
       lentesQuery += `
         INNER JOIN entrega_detalle_lente edl ON l.id_lente = edl.id_lente
         WHERE edl.id_entrega_pendiente = $1
       `;
       lentesParams = [idEntrega];
     } else {
-      // Si no hay entrega, buscar lentes asociados al pedido de otra forma
-      // Esto dependerá de cómo esté estructurada tu BD
-      // Por ahora, intentamos buscar por el pedido a través de alguna relación
-      // Podrías tener una tabla que relacione lente con pedido directamente
-      console.log("⚠️ No se encontró entrega, buscando lentes sin entrega...");
-      // Como fallback, intentamos buscar lentes que estén en el pedido
-      // Esto es un ejemplo, ajusta según tu esquema
       lentesQuery += `
-        WHERE l.id_lente IN (
-          SELECT edl.id_lente 
-          FROM entrega_detalle_lente edl
-          INNER JOIN entrega_pendiente ep ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
-          WHERE ep.id_pedido = $1
-        )
+        INNER JOIN entrega_detalle_lente edl ON l.id_lente = edl.id_lente
+        INNER JOIN entrega_pendiente ep ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
+        WHERE ep.id_pedido = $1
       `;
       lentesParams = [idNum];
     }
 
-    console.log("📝 Query lentes:", lentesQuery);
-    console.log("📦 Params lentes:", lentesParams);
-
     const lentesResult = await query(lentesQuery, lentesParams);
-    console.log("📊 Lentes encontrados:", lentesResult.rows.length);
 
     // 4. Construir items (lentes)
     let lenteIndex = 0;
     lentesResult.rows.forEach((l) => {
       lenteIndex++;
-      const grupo = `Lente ${l.tipo_lente || 'No especificado'} ${lenteIndex}`;
+      const grupo = `Lente ${l.tipo_lente || 'No especificado'}`;
+      const totalLente = parseFloat(l.total_lente || 0);
       
       if (l.frame) {
         venta.items.push({
@@ -443,10 +438,10 @@ const getVentaById = async (id) => {
         });
       }
       
-      if (l.material) {
+      if (l.organico) {
         venta.items.push({
-          nombre: `Material: ${l.material}`,
-          cantidad: 2,
+          nombre: `Orgánico: ${l.organico}`,
+          cantidad: 1,
           precioUnitario: 0,
           subtotal: 0,
           esLente: true,
@@ -475,13 +470,27 @@ const getVentaById = async (id) => {
           grupo: grupo
         });
       }
+
+      // Agregar el total del lente como un item al final del grupo
+      if (totalLente > 0) {
+        venta.items.push({
+          nombre: `Total Lente`,
+          cantidad: 1,
+          precioUnitario: totalLente,
+          subtotal: totalLente,
+          esLente: true,
+          grupo: grupo,
+          esTotal: true
+        });
+      }
     });
 
-    // 5. Obtener productos adicionales (materiales de entrega_detalle_material)
+    // 5. Obtener productos adicionales (materiales) con sus totales
     let materialesQuery = `
       SELECT 
         m.nombre_material,
-        edm.cantidad
+        edm.cantidad,
+        edm.total as total_material
       FROM entrega_detalle_material edm
       INNER JOIN material m ON edm.id_material = m.id_material
     `;
@@ -499,19 +508,18 @@ const getVentaById = async (id) => {
       materialesParams = [idNum];
     }
 
-    console.log("📝 Query materiales:", materialesQuery);
-    console.log("📦 Params materiales:", materialesParams);
-
     const materialesResult = await query(materialesQuery, materialesParams);
-    console.log("📊 Materiales encontrados:", materialesResult.rows.length);
 
     // Agregar materiales como items
     materialesResult.rows.forEach(m => {
+      const totalMaterial = parseFloat(m.total_material || 0);
+      const cantidad = parseInt(m.cantidad || 1);
+      
       venta.items.push({
         nombre: m.nombre_material,
-        cantidad: m.cantidad || 1,
-        precioUnitario: 0,
-        subtotal: 0,
+        cantidad: cantidad,
+        precioUnitario: cantidad > 0 ? totalMaterial / cantidad : 0,
+        subtotal: totalMaterial,
         esLente: false,
         grupo: 'Productos Adicionales'
       });
@@ -530,12 +538,18 @@ const getVentaById = async (id) => {
 // GET - OBTENER VENTAS POR CÓDIGO
 // ============================================
 
-const getVentasByCodigo = async (codigoVenta) => {
+const getVentasByCodigo = async (codigoVenta, userInfo) => {
   try {
     console.log("🔍 getVentasByCodigo service - codigoVenta:", codigoVenta);
 
-    const result = await query(
-      `
+    const { negocioId, tiendaId } = userInfo;
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return [];
+    }
+
+    let queryText = `
       SELECT 
         p.id_pedido,
         p.codigo_pedido,
@@ -554,11 +568,22 @@ const getVentasByCodigo = async (codigoVenta) => {
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
       LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
-      WHERE p.codigo_pedido ILIKE $1
-      ORDER BY p.fecha_pedido DESC
-      `,
-      [`%${codigoVenta}%`]
-    );
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE p.codigo_pedido ILIKE $1 AND t.id_negocio = $2
+    `;
+
+    const params = [`%${codigoVenta}%`, parseInt(negocioId)];
+    let paramIndex = 3;
+
+    if (tiendaId && tiendaId !== 'todas') {
+      queryText += ` AND p.id_tienda = $${paramIndex}`;
+      params.push(parseInt(tiendaId));
+      paramIndex++;
+    }
+
+    queryText += ` ORDER BY p.fecha_pedido DESC`;
+
+    const result = await query(queryText, params);
 
     return result.rows.map(row => mapVentaToFrontend(row));
   } catch (error) {
@@ -571,12 +596,18 @@ const getVentasByCodigo = async (codigoVenta) => {
 // GET - OBTENER VENTAS POR CLIENTE
 // ============================================
 
-const getVentasByCliente = async (clientName) => {
+const getVentasByCliente = async (clientName, userInfo) => {
   try {
     console.log("🔍 getVentasByCliente service - clientName:", clientName);
 
-    const result = await query(
-      `
+    const { negocioId, tiendaId } = userInfo;
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return [];
+    }
+
+    let queryText = `
       SELECT 
         p.id_pedido,
         p.codigo_pedido,
@@ -595,11 +626,22 @@ const getVentasByCliente = async (clientName) => {
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
       LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
-      WHERE per.nombre ILIKE $1 OR per.apellido ILIKE $1
-      ORDER BY p.fecha_pedido DESC
-      `,
-      [`%${clientName}%`]
-    );
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE (per.nombre ILIKE $1 OR per.apellido ILIKE $1) AND t.id_negocio = $2
+    `;
+
+    const params = [`%${clientName}%`, parseInt(negocioId)];
+    let paramIndex = 3;
+
+    if (tiendaId && tiendaId !== 'todas') {
+      queryText += ` AND p.id_tienda = $${paramIndex}`;
+      params.push(parseInt(tiendaId));
+      paramIndex++;
+    }
+
+    queryText += ` ORDER BY p.fecha_pedido DESC`;
+
+    const result = await query(queryText, params);
 
     return result.rows.map(row => mapVentaToFrontend(row));
   } catch (error) {
@@ -612,11 +654,11 @@ const getVentasByCliente = async (clientName) => {
 // GET - RESUMEN DE VENTAS
 // ============================================
 
-const getResumenVentas = async (filtros) => {
+const getResumenVentas = async (filtros, userInfo) => {
   try {
     console.log("🔍 getResumenVentas service - filtros:", filtros);
 
-    const ventas = await getVentas(filtros);
+    const ventas = await getVentas(filtros, userInfo);
 
     const resumen = ventas.reduce((acc, v) => {
       acc.totalEfectivo += v.pagoEfectivo || 0;
@@ -648,11 +690,17 @@ const getResumenVentas = async (filtros) => {
 // GET - RESUMEN POR CLIENTE
 // ============================================
 
-const getResumenClientes = async (filtros) => {
+const getResumenClientes = async (filtros, userInfo) => {
   try {
     console.log("🔍 getResumenClientes service - filtros:", filtros);
 
+    const { negocioId, tiendaId } = userInfo;
     const { tipoFiltro = 'todos' } = filtros;
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return [];
+    }
 
     let queryText = `
       SELECT 
@@ -664,15 +712,16 @@ const getResumenClientes = async (filtros) => {
       FROM pedido p
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      WHERE 1=1
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE t.id_negocio = $1
     `;
 
-    const params = [];
-    let paramIndex = 1;
+    const params = [parseInt(negocioId)];
+    let paramIndex = 2;
 
-    if (filtros.tiendaId) {
+    if (tiendaId && tiendaId !== 'todas') {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
-      params.push(parseInt(filtros.tiendaId));
+      params.push(parseInt(tiendaId));
       paramIndex++;
     }
 
@@ -730,9 +779,21 @@ const getResumenClientes = async (filtros) => {
 // GET - ESTADÍSTICAS RÁPIDAS
 // ============================================
 
-const getEstadisticasRapidas = async (tiendaId) => {
+const getEstadisticasRapidas = async (tiendaIdFiltro, userInfo) => {
   try {
-    console.log("🔍 getEstadisticasRapidas service - tiendaId:", tiendaId);
+    console.log("🔍 getEstadisticasRapidas service - tiendaIdFiltro:", tiendaIdFiltro);
+
+    const { negocioId, tiendaId } = userInfo;
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado");
+      return {
+        totalVentasHoy: 0,
+        totalVentasMes: 0,
+        promedioVenta: 0,
+        cantidadVentasHoy: 0
+      };
+    }
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -742,16 +803,19 @@ const getEstadisticasRapidas = async (tiendaId) => {
       SELECT 
         COUNT(*) as total_ventas,
         COALESCE(SUM(total), 0) as total_monto
-      FROM pedido
-      WHERE fecha_pedido >= $1
+      FROM pedido p
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE t.id_negocio = $1 AND p.fecha_pedido >= $2
     `;
 
-    const params = [startOfMonth.toISOString()];
-    let paramIndex = 2;
+    const params = [parseInt(negocioId), startOfMonth.toISOString()];
+    let paramIndex = 3;
 
-    if (tiendaId) {
-      queryText += ` AND id_tienda = $${paramIndex}`;
-      params.push(parseInt(tiendaId));
+    // Si el usuario tiene una tienda específica, filtrar por ella
+    const tiendaEfectiva = tiendaIdFiltro && tiendaIdFiltro !== 'todas' ? tiendaIdFiltro : tiendaId;
+    if (tiendaEfectiva && tiendaEfectiva !== 'todas') {
+      queryText += ` AND p.id_tienda = $${paramIndex}`;
+      params.push(parseInt(tiendaEfectiva));
       paramIndex++;
     }
 
@@ -763,16 +827,17 @@ const getEstadisticasRapidas = async (tiendaId) => {
       SELECT 
         COUNT(*) as total_ventas,
         COALESCE(SUM(total), 0) as total_monto
-      FROM pedido
-      WHERE fecha_pedido >= $1 AND fecha_pedido < $2
+      FROM pedido p
+      INNER JOIN tienda t ON p.id_tienda = t.id_tienda
+      WHERE t.id_negocio = $1 AND p.fecha_pedido >= $2 AND p.fecha_pedido < $3
     `;
 
-    const hoyParams = [today.toISOString(), new Date(today.getTime() + 86400000).toISOString()];
-    let hoyIndex = 3;
+    const hoyParams = [parseInt(negocioId), today.toISOString(), new Date(today.getTime() + 86400000).toISOString()];
+    let hoyIndex = 4;
 
-    if (tiendaId) {
-      hoyQuery += ` AND id_tienda = $${hoyIndex}`;
-      hoyParams.push(parseInt(tiendaId));
+    if (tiendaEfectiva && tiendaEfectiva !== 'todas') {
+      hoyQuery += ` AND p.id_tienda = $${hoyIndex}`;
+      hoyParams.push(parseInt(tiendaEfectiva));
     }
 
     const hoyResult = await query(hoyQuery, hoyParams);
@@ -799,12 +864,17 @@ const getEstadisticasRapidas = async (tiendaId) => {
 };
 
 // ============================================
-// GET - TIENDAS DISPONIBLES
+// GET - TIENDAS DISPONIBLES (SOLO DEL NEGOCIO)
 // ============================================
 
-const getTiendas = async () => {
+const getTiendas = async (negocioId) => {
   try {
-    console.log("🔍 getTiendas service");
+    console.log("🔍 getTiendas service - negocioId:", negocioId);
+
+    if (!negocioId) {
+      console.warn("⚠️ negocioId no proporcionado, retornando array vacío");
+      return [];
+    }
 
     const result = await query(
       `
@@ -812,10 +882,13 @@ const getTiendas = async () => {
         id_tienda as id,
         nombre_tienda as nombre
       FROM tienda
-      WHERE estado = 'activo'
+      WHERE id_negocio = $1 AND estado = 'activo'
       ORDER BY nombre_tienda
-      `
+      `,
+      [parseInt(negocioId)]
     );
+
+    console.log("📊 Tiendas encontradas:", result.rows.length);
 
     return result.rows.map(row => ({
       id: row.id.toString(),

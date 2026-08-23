@@ -39,7 +39,10 @@ const authenticate = async (req, res, next) => {
     console.log("=== [Middleware] Token decodificado ===");
     console.log("decoded:", decoded);
 
-    if (!decoded || !decoded.id_usuario) {
+    // 5. Obtener el ID del usuario (puede estar en diferentes campos)
+    const userId = decoded.id_usuario || decoded.userId || decoded.id;
+    
+    if (!userId) {
       console.log("Token inválido: no tiene id_usuario");
       return res.status(401).json({
         success: false,
@@ -47,7 +50,7 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    // 5. Buscar el usuario en la base de datos
+    // 6. Buscar el usuario en la base de datos
     const userQuery = `
       SELECT 
         u.id_usuario,
@@ -65,7 +68,7 @@ const authenticate = async (req, res, next) => {
       WHERE u.id_usuario = $1 AND u.estado = 'activo'
     `;
     
-    const userResult = await db.query(userQuery, [decoded.id_usuario]);
+    const userResult = await db.query(userQuery, [userId]);
     
     console.log("Usuario encontrado:", userResult.rows.length > 0 ? userResult.rows[0].usuario : "No encontrado");
     
@@ -78,8 +81,61 @@ const authenticate = async (req, res, next) => {
 
     const user = userResult.rows[0];
 
-    // 6. Adjuntar información del usuario al request
-    req.user = user;
+    // 7. Obtener las tiendas del usuario
+    const storesQuery = `
+      SELECT 
+        t.id_tienda,
+        t.nombre_tienda,
+        t.id_negocio,
+        n.nombre_negocio,
+        t.estado
+      FROM usuario_tienda ut
+      INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
+      INNER JOIN negocio n ON t.id_negocio = n.id_negocio
+      WHERE ut.id_usuario = $1
+      AND t.estado = 'activo'
+    `;
+    
+    const storesResult = await db.query(storesQuery, [userId]);
+    
+    // 8. Obtener el negocioId y tiendaId del token o de la primera tienda
+    let negocioId = decoded.negocioId || decoded.id_negocio || null;
+    let tiendaId = decoded.tiendaId || decoded.id_tienda || null;
+    
+    // Si no hay negocioId en el token, usar el de la primera tienda
+    if (!negocioId && storesResult.rows.length > 0) {
+      negocioId = storesResult.rows[0].id_negocio;
+    }
+    
+    // Si no hay tiendaId en el token, usar la primera tienda
+    if (!tiendaId && storesResult.rows.length > 0) {
+      tiendaId = storesResult.rows[0].id_tienda;
+    }
+
+    // 9. Adjuntar toda la información del usuario al request
+    req.user = {
+      id_usuario: user.id_usuario,
+      id_persona: user.id_persona,
+      usuario: user.usuario,
+      nombre: user.nombre,
+      apellido: user.apellido,
+      celular: user.celular,
+      id_rol: user.id_rol,
+      rol_nombre: user.rol_nombre,
+      estado: user.estado,
+      // Información adicional del token
+      negocioId: negocioId ? negocioId.toString() : null,
+      tiendaId: tiendaId ? tiendaId.toString() : 'todas',
+      stores: storesResult.rows,
+      // Mantener compatibilidad con el controller
+      tiendaSeleccionada: tiendaId ? tiendaId.toString() : 'todas',
+    };
+
+    console.log("=== [Middleware] Usuario autenticado ===");
+    console.log("usuario:", req.user.usuario);
+    console.log("negocioId:", req.user.negocioId);
+    console.log("tiendaId:", req.user.tiendaId);
+    console.log("rol:", req.user.rol_nombre);
 
     next();
   } catch (error) {

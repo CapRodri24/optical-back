@@ -2,6 +2,13 @@
 const express = require("express");
 const router = express.Router();
 const historialVentasController = require("../controllers/HistorialVentasController");
+const { authenticate } = require("../middleware/loginmiddleware");
+
+// ============================================
+// TODAS LAS RUTAS REQUIEREN AUTENTICACIÓN
+// ============================================
+
+router.use(authenticate);
 
 // ============================================
 // RUTAS ESTÁTICAS (DEBEN IR PRIMERO)
