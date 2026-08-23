@@ -120,9 +120,9 @@ const getPagosByEntregaId = async (idPedido) => {
 
 const getEntregasConSaldo = async (userInfo) => {
   try {
-    const { negocioId, tiendaId } = userInfo;
+    const { negocioId, tiendaId, role } = userInfo;
 
-    console.log("🔍 getEntregasConSaldo service - negocioId:", negocioId, "tiendaId:", tiendaId);
+    console.log("🔍 getEntregasConSaldo service - negocioId:", negocioId, "tiendaId:", tiendaId, "role:", role);
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
@@ -162,9 +162,24 @@ const getEntregasConSaldo = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    if (tiendaId && tiendaId !== 'todas') {
+    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
+    let tiendaParaFiltrar = null;
+
+    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
+    if (role === "Vendedor" || role === "Medidor") {
+      if (tiendaId && tiendaId !== 'todas') {
+        tiendaParaFiltrar = tiendaId;
+      }
+    }
+    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
+    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+      tiendaParaFiltrar = tiendaId;
+    }
+
+    // Aplicar el filtro de tienda si se determinó uno
+    if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
-      params.push(parseInt(tiendaId));
+      params.push(parseInt(tiendaParaFiltrar));
       paramIndex++;
     }
 
@@ -258,9 +273,9 @@ const getEntregasConSaldo = async (userInfo) => {
 
 const getEntregas = async (userInfo) => {
   try {
-    const { negocioId, tiendaId } = userInfo;
+    const { negocioId, tiendaId, role } = userInfo;
 
-    console.log("🔍 getEntregas service - negocioId:", negocioId, "tiendaId:", tiendaId);
+    console.log("🔍 getEntregas service - negocioId:", negocioId, "tiendaId:", tiendaId, "role:", role);
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
@@ -298,9 +313,24 @@ const getEntregas = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    if (tiendaId && tiendaId !== 'todas') {
+    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
+    let tiendaParaFiltrar = null;
+
+    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
+    if (role === "Vendedor" || role === "Medidor") {
+      if (tiendaId && tiendaId !== 'todas') {
+        tiendaParaFiltrar = tiendaId;
+      }
+    }
+    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
+    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+      tiendaParaFiltrar = tiendaId;
+    }
+
+    // Aplicar el filtro de tienda si se determinó uno
+    if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
-      params.push(parseInt(tiendaId));
+      params.push(parseInt(tiendaParaFiltrar));
       paramIndex++;
     }
 
@@ -762,9 +792,9 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
 
 const getEstadisticasPagos = async (userInfo) => {
   try {
-    const { negocioId, tiendaId } = userInfo;
+    const { negocioId, tiendaId, role } = userInfo;
 
-    console.log("🔍 getEstadisticasPagos service - negocioId:", negocioId, "tiendaId:", tiendaId);
+    console.log("🔍 getEstadisticasPagos service - negocioId:", negocioId, "tiendaId:", tiendaId, "role:", role);
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
@@ -790,9 +820,24 @@ const getEstadisticasPagos = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    if (tiendaId && tiendaId !== 'todas') {
+    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
+    let tiendaParaFiltrar = null;
+
+    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
+    if (role === "Vendedor" || role === "Medidor") {
+      if (tiendaId && tiendaId !== 'todas') {
+        tiendaParaFiltrar = tiendaId;
+      }
+    }
+    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
+    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+      tiendaParaFiltrar = tiendaId;
+    }
+
+    // Aplicar el filtro de tienda si se determinó uno
+    if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
-      params.push(parseInt(tiendaId));
+      params.push(parseInt(tiendaParaFiltrar));
       paramIndex++;
     }
 
