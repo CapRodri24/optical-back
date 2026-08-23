@@ -115,6 +115,85 @@ const getPagosByEntregaId = async (idPedido) => {
 };
 
 // ============================================
+// FUNCIÓN PARA REGISTRAR MOVIMIENTO EN CAJA (SOLO EFECTIVO)
+// ============================================
+
+const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta) => {
+  try {
+    if (montoEfectivo <= 0) {
+      console.log("ℹ️ No hay monto en efectivo para registrar en caja");
+      return;
+    }
+
+    // 1. Verificar que la caja existe y está abierta para la tienda
+    const cajaResult = await query(
+      `
+      SELECT id_caja, total, estado 
+      FROM caja 
+      WHERE id_tienda = $1
+      `,
+      [parseInt(tiendaId)]
+    );
+
+    if (cajaResult.rows.length === 0) {
+      throw new Error(`No se encontró caja para la tienda con ID ${tiendaId}`);
+    }
+
+    const caja = cajaResult.rows[0];
+
+    // 2. Verificar que la caja esté abierta
+    if (caja.estado !== 'abierta') {
+      throw new Error(`La caja de la tienda está cerrada. No se pueden registrar pagos en efectivo.`);
+    }
+
+    const idCaja = caja.id_caja;
+    const montoAnterior = parseFloat(caja.total || 0);
+    const montoNuevo = montoAnterior + montoEfectivo;
+
+    // 3. Actualizar el total de la caja
+    await query(
+      `
+      UPDATE caja 
+      SET total = $1 
+      WHERE id_caja = $2
+      `,
+      [montoNuevo, idCaja]
+    );
+
+    // 4. Registrar la transacción en caja
+    await query(
+      `
+      INSERT INTO transaccion_caja (
+        id_caja,
+        id_usuario,
+        monto_nuevo,
+        monto_anterior,
+        monto,
+        tipo_movimiento,
+        descripcion,
+        id_venta
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        idCaja,
+        parseInt(userId),
+        montoNuevo,
+        montoAnterior,
+        montoEfectivo,
+        'ingreso',
+        `Pago en efectivo registrado`,
+        idVenta
+      ]
+    );
+
+    console.log(`✅ Movimiento de caja registrado: +Bs ${montoEfectivo} (Caja ID: ${idCaja}, Tienda: ${tiendaId})`);
+  } catch (error) {
+    console.error("Error registrando movimiento en caja:", error);
+    throw new Error(error.message || "Error al registrar el movimiento en caja");
+  }
+};
+
+// ============================================
 // GET - OBTENER ENTREGAS CON SALDO PENDIENTE
 // ============================================
 
@@ -162,21 +241,17 @@ const getEntregasConSaldo = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
+    // DETERMINAR QUÉ TIENDA FILTRAR
     let tiendaParaFiltrar = null;
 
-    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
     if (role === "Vendedor" || role === "Medidor") {
       if (tiendaId && tiendaId !== 'todas') {
         tiendaParaFiltrar = tiendaId;
       }
-    }
-    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
-    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+    } else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
       tiendaParaFiltrar = tiendaId;
     }
 
-    // Aplicar el filtro de tienda si se determinó uno
     if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
       params.push(parseInt(tiendaParaFiltrar));
@@ -313,21 +388,16 @@ const getEntregas = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
     let tiendaParaFiltrar = null;
 
-    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
     if (role === "Vendedor" || role === "Medidor") {
       if (tiendaId && tiendaId !== 'todas') {
         tiendaParaFiltrar = tiendaId;
       }
-    }
-    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
-    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+    } else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
       tiendaParaFiltrar = tiendaId;
     }
 
-    // Aplicar el filtro de tienda si se determinó uno
     if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
       params.push(parseInt(tiendaParaFiltrar));
@@ -628,7 +698,7 @@ const getHistorialPagos = async (id, userInfo) => {
 };
 
 // ============================================
-// POST - REGISTRAR PAGO
+// POST - REGISTRAR PAGO (CON CAJA)
 // ============================================
 
 const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
@@ -647,6 +717,7 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       throw new Error("ID de entrega inválido");
     }
 
+    // 1. Obtener el pedido asociado a esta entrega
     const entregaResult = await query(
       `
       SELECT 
@@ -670,7 +741,9 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
 
     const pedido = entregaResult.rows[0];
     const totalPedido = parseFloat(pedido.total || 0);
+    const tiendaId = pedido.id_tienda;
 
+    // 2. Calcular el monto pagado actual
     const pagosActualesResult = await query(
       `
       SELECT COALESCE(SUM(monto_pagado), 0) as total_pagado
@@ -687,11 +760,13 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       throw new Error(`El monto total pagado (${nuevoMontoPagado.toFixed(2)}) excede el total del pedido (${totalPedido.toFixed(2)})`);
     }
 
+    // 3. Determinar el nuevo estado de pago
     let nuevoEstadoPago = "Parcial";
     if (nuevoMontoPagado >= totalPedido) {
       nuevoEstadoPago = "Completo";
     }
 
+    // 4. Calcular montos para el registro de venta
     let montoEfectivo = 0;
     let montoQR = 0;
     let metodoPago = metodo;
@@ -706,7 +781,8 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       montoQR = monto;
     }
 
-    await query(
+    // 5. Registrar la venta (pago)
+    const ventaResult = await query(
       `
       INSERT INTO venta (
         id_pedido,
@@ -717,6 +793,7 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
         monto_qr,
         descripcion
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id_venta
       `,
       [
         pedido.id_pedido,
@@ -729,6 +806,9 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       ]
     );
 
+    const idVenta = ventaResult.rows[0].id_venta;
+
+    // 6. Actualizar el estado del pedido
     await query(
       `
       UPDATE pedido 
@@ -738,6 +818,7 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       [nuevoEstadoPago, pedido.id_pedido]
     );
 
+    // 7. Actualizar pago_pendiente
     const saldoPendiente = totalPedido - nuevoMontoPagado;
 
     const pagoPendienteResult = await query(
@@ -777,6 +858,15 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       console.log("✅ Pago pendiente CREADO para pedido:", pedido.id_pedido);
     }
 
+    // 8. REGISTRAR MOVIMIENTO EN CAJA (SOLO PARA EFECTIVO)
+    // Si hay monto en efectivo (pago en efectivo o parte efectivo de mixto)
+    if (montoEfectivo > 0) {
+      await registrarMovimientoCaja(tiendaId, userId, montoEfectivo, idVenta);
+    } else {
+      console.log("ℹ️ No se registra movimiento en caja (pago con QR o sin efectivo)");
+    }
+
+    // 9. Obtener la entrega actualizada
     const entregaActualizada = await getEntregaById(id, userInfo);
 
     return entregaActualizada;
@@ -820,21 +910,16 @@ const getEstadisticasPagos = async (userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    // DETERMINAR QUÉ TIENDA FILTRAR (misma lógica que HistorialVentasService)
     let tiendaParaFiltrar = null;
 
-    // 1. Si es Vendedor o Medidor, usar su tienda asignada (si existe)
     if (role === "Vendedor" || role === "Medidor") {
       if (tiendaId && tiendaId !== 'todas') {
         tiendaParaFiltrar = tiendaId;
       }
-    }
-    // 2. Si es Administrador y el frontend envió un filtro de tienda específico
-    else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
+    } else if (role === "Administrador" && tiendaId && tiendaId !== 'todas') {
       tiendaParaFiltrar = tiendaId;
     }
 
-    // Aplicar el filtro de tienda si se determinó uno
     if (tiendaParaFiltrar) {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
       params.push(parseInt(tiendaParaFiltrar));
