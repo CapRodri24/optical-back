@@ -63,6 +63,9 @@ const reportesRoutes = require("./src/routes/reportesRoutes");
 app.use("/api/reportes", reportesRoutes);
 const DashboardRoutes = require("./src/routes/DashboardRoutes");
 app.use("/api/dashboard", DashboardRoutes);
+const ConfiguracionRoutes = require("./src/routes/ConfiguracionRoutes");
+app.use("/api/configuracion", ConfiguracionRoutes);
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({
