@@ -18,7 +18,6 @@ const buildDateFilters = (filtros) => {
       whereClauses.push(`DATE(v.fecha_hora) = CURRENT_DATE - INTERVAL '1 day'`);
       break;
     case 'week': {
-      // Lunes a Domingo
       whereClauses.push(`DATE(v.fecha_hora) >= DATE_TRUNC('week', CURRENT_DATE)`);
       whereClauses.push(`DATE(v.fecha_hora) <= DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days'`);
       break;
@@ -48,7 +47,6 @@ const buildDateFilters = (filtros) => {
       }
       break;
     default:
-      // Por defecto: este mes
       whereClauses.push(`DATE(v.fecha_hora) >= DATE_TRUNC('month', CURRENT_DATE)`);
       whereClauses.push(`DATE(v.fecha_hora) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`);
   }
@@ -57,7 +55,7 @@ const buildDateFilters = (filtros) => {
 };
 
 /**
- * Construir filtros de fecha para stock (usa fecha de transaccion_caja)
+ * Construir filtros de fecha para movimientos de stock (usa fecha_movimiento)
  */
 const buildStockDateFilters = (filtros) => {
   const { filterType, specificDate, startDate, endDate } = filtros;
@@ -67,24 +65,24 @@ const buildStockDateFilters = (filtros) => {
 
   switch (filterType) {
     case 'today':
-      whereClauses.push(`DATE(tc.fecha) = CURRENT_DATE`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) = CURRENT_DATE`);
       break;
     case 'yesterday':
-      whereClauses.push(`DATE(tc.fecha) = CURRENT_DATE - INTERVAL '1 day'`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) = CURRENT_DATE - INTERVAL '1 day'`);
       break;
     case 'week':
-      whereClauses.push(`DATE(tc.fecha) >= DATE_TRUNC('week', CURRENT_DATE)`);
-      whereClauses.push(`DATE(tc.fecha) <= DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days'`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) >= DATE_TRUNC('week', CURRENT_DATE)`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) <= DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days'`);
       break;
     case 'month':
-      whereClauses.push(`DATE(tc.fecha) >= DATE_TRUNC('month', CURRENT_DATE)`);
-      whereClauses.push(`DATE(tc.fecha) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) >= DATE_TRUNC('month', CURRENT_DATE)`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`);
       break;
     case 'specific':
       if (specificDate) {
         const date = new Date(specificDate);
         const dateStr = date.toISOString().split('T')[0];
-        whereClauses.push(`DATE(tc.fecha) = $${paramCount}`);
+        whereClauses.push(`DATE(ms.fecha_movimiento) = $${paramCount}`);
         params.push(dateStr);
         paramCount++;
       }
@@ -95,14 +93,14 @@ const buildStockDateFilters = (filtros) => {
         const end = new Date(endDate);
         const startStr = start.toISOString().split('T')[0];
         const endStr = end.toISOString().split('T')[0];
-        whereClauses.push(`DATE(tc.fecha) BETWEEN $${paramCount} AND $${paramCount + 1}`);
+        whereClauses.push(`DATE(ms.fecha_movimiento) BETWEEN $${paramCount} AND $${paramCount + 1}`);
         params.push(startStr, endStr);
         paramCount += 2;
       }
       break;
     default:
-      whereClauses.push(`DATE(tc.fecha) >= DATE_TRUNC('month', CURRENT_DATE)`);
-      whereClauses.push(`DATE(tc.fecha) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) >= DATE_TRUNC('month', CURRENT_DATE)`);
+      whereClauses.push(`DATE(ms.fecha_movimiento) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`);
   }
 
   return { whereClauses, params, paramCount };
@@ -165,21 +163,22 @@ const getResumen = async (filtros) => {
       WHERE 1=1
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
 
-    // Filtro por tienda
+    let currentParam = paramCount;
+
     if (tiendaId) {
-      queryText += ` AND t.id_tienda = $${paramCount}`;
+      queryText += ` AND t.id_tienda = $${currentParam}`;
       params.push(tiendaId);
+      currentParam++;
     }
 
-    // Filtro por negocio
     if (negocioId) {
-      queryText += ` AND n.id_negocio = $${paramCount + (tiendaId ? 1 : 0)}`;
+      queryText += ` AND n.id_negocio = $${currentParam}`;
       params.push(negocioId);
+      currentParam++;
     }
 
     const result = await query(queryText, params);
@@ -188,7 +187,7 @@ const getResumen = async (filtros) => {
     return {
       total_ventas: parseFloat(row.total_ventas || 0),
       cantidad_ventas: parseInt(row.cantidad_ventas || 0),
-      ganancia_neta: parseFloat(row.total_ventas || 0) * 0.4, // Estimación 40% de ganancia
+      ganancia_neta: parseFloat(row.total_ventas || 0) * 0.4,
       productos_vendidos: parseInt(row.productos_vendidos || 0),
       clientes_atendidos: parseInt(row.clientes_atendidos || 0)
     };
@@ -242,7 +241,6 @@ const getVentasPorMes = async (filtros) => {
 
     const result = await query(queryText, params);
 
-    // Mapear nombres de meses
     const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     
     return result.rows.map(row => ({
@@ -278,7 +276,6 @@ const getVentasPorCategoria = async (filtros) => {
       WHERE 1=1
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -304,7 +301,6 @@ const getVentasPorCategoria = async (filtros) => {
 
     const result = await query(queryText, params);
 
-    // Calcular porcentajes
     const total = result.rows.reduce((sum, row) => sum + parseFloat(row.total_venta || 0), 0);
 
     return result.rows.map(row => ({
@@ -342,7 +338,6 @@ const getTopProductos = async (filtros) => {
       WHERE m.id_material IS NOT NULL
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -406,7 +401,6 @@ const getBottomProductos = async (filtros) => {
       WHERE m.id_material IS NOT NULL
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -468,7 +462,6 @@ const getClientesFrecuentes = async (filtros) => {
       WHERE 1=1
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -526,7 +519,6 @@ const getMetodosPago = async (filtros) => {
       WHERE 1=1
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -552,7 +544,6 @@ const getMetodosPago = async (filtros) => {
 
     const result = await query(queryText, params);
 
-    // Mapear nombres de métodos de pago
     const methodMap = {
       'Efectivo': 'Efectivo',
       'QR': 'QR',
@@ -570,7 +561,7 @@ const getMetodosPago = async (filtros) => {
 };
 
 /**
- * Obtener movimientos de stock
+ * Obtener movimientos de stock desde la tabla movimientos_stock
  */
 const getMovimientosStock = async (filtros) => {
   try {
@@ -579,25 +570,23 @@ const getMovimientosStock = async (filtros) => {
 
     let queryText = `
       SELECT 
-        tc.id_transaccion_caja as id,
-        tc.fecha,
+        ms.id_movimiento_stock as id,
+        ms.fecha_movimiento as fecha,
         m.nombre_material as producto,
-        tc.monto as cantidad,
-        tc.monto_anterior as stock_anterior,
-        tc.monto_nuevo as stock_nuevo,
+        ms.cantidad_modificada as cantidad,
+        ms.cantidad_anterior as stock_anterior,
+        ms.cantidad_nueva as stock_nuevo,
         u.usuario as usuario,
         t.nombre_tienda as sucursal
-      FROM transaccion_caja tc
-      INNER JOIN caja c ON tc.id_caja = c.id_caja
-      INNER JOIN tienda t ON c.id_tienda = t.id_tienda
+      FROM movimientos_stock ms
+      INNER JOIN material_tienda mt ON ms.id_material_tienda = mt.id_material_tienda
+      INNER JOIN material m ON mt.id_material = m.id_material
+      INNER JOIN tienda t ON mt.id_tienda = t.id_tienda
       INNER JOIN negocio n ON t.id_negocio = n.id_negocio
-      LEFT JOIN usuario u ON tc.id_usuario = u.id_usuario
-      LEFT JOIN material m ON m.id_material = tc.id_venta::integer
-      WHERE tc.tipo_movimiento IN ('ingreso', 'egreso')
-        AND tc.descripcion LIKE '%Stock%'
+      LEFT JOIN usuario u ON ms.id_usuario = u.id_usuario
+      WHERE 1=1
     `;
 
-    // Agregar filtros de fecha
     if (whereClauses.length > 0) {
       queryText += ` AND ${whereClauses.join(' AND ')}`;
     }
@@ -635,7 +624,7 @@ const getMovimientosStock = async (filtros) => {
     }
 
     queryText += `
-      ORDER BY tc.fecha DESC
+      ORDER BY ms.fecha_movimiento DESC
       LIMIT 100
     `;
 
@@ -643,7 +632,7 @@ const getMovimientosStock = async (filtros) => {
 
     return result.rows.map(row => ({
       id: parseInt(row.id),
-      fecha: row.fecha.toISOString(),
+      fecha: row.fecha.toISOString ? row.fecha.toISOString() : new Date(row.fecha).toISOString(),
       producto: row.producto || 'Producto desconocido',
       cantidad: parseInt(row.cantidad || 0),
       stockAnterior: parseInt(row.stock_anterior || 0),
@@ -663,19 +652,21 @@ const getMovimientosStock = async (filtros) => {
 const getProductosUnicos = async (negocioId) => {
   try {
     let queryText = `
-      SELECT DISTINCT nombre_material as producto
-      FROM material
+      SELECT DISTINCT m.nombre_material as producto
+      FROM material m
+      INNER JOIN material_tienda mt ON m.id_material = mt.id_material
+      INNER JOIN tienda t ON mt.id_tienda = t.id_tienda
       WHERE 1=1
     `;
 
     const params = [];
 
     if (negocioId) {
-      queryText += ` AND id_negocio = $1`;
+      queryText += ` AND t.id_negocio = $1`;
       params.push(negocioId);
     }
 
-    queryText += ` ORDER BY nombre_material`;
+    queryText += ` ORDER BY m.nombre_material`;
 
     const result = await query(queryText, params);
 
