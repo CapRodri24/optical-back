@@ -163,7 +163,7 @@ const getTiendaById = async (req, res) => {
 
 const createStore = async (req, res) => {
   try {
-    const { adminId, nombre, ubicacion, telefono, countryCode } = req.body;
+    const { adminId, nombre, ubicacion, telefono, countryCode, precio } = req.body;
 
     if (!adminId || !nombre || !ubicacion || !telefono) {
       return res.status(400).json({
@@ -177,7 +177,8 @@ const createStore = async (req, res) => {
       nombre,
       ubicacion,
       telefono,
-      countryCode: countryCode || "+591"
+      countryCode: countryCode || "+591",
+      precio: precio || 500
     });
 
     res.json({
@@ -221,6 +222,37 @@ const updateUserLimit = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error al actualizar límite"
+    });
+  }
+};
+
+const updateStorePrice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { price } = req.body;
+
+    if (!price || price < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "El precio debe ser mayor a 0"
+      });
+    }
+
+    const tienda = await spiderAdminService.updateStorePrice({
+      storeId: id,
+      newPrice: price
+    });
+
+    res.json({
+      success: true,
+      data: tienda,
+      message: "Precio actualizado correctamente"
+    });
+  } catch (error) {
+    console.error("Error en updateStorePrice:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error al actualizar precio"
     });
   }
 };
@@ -459,6 +491,7 @@ module.exports = {
   getTiendaById,
   createStore,
   updateUserLimit,
+  updateStorePrice,
   getPaymentHistory,
   getAllPayments,
   registerPayment,

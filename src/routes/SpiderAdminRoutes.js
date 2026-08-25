@@ -33,6 +33,7 @@ router.get("/tiendas", authenticate, spiderAdminController.getTiendas);
 router.get("/tienda/:id", authenticate, spiderAdminController.getTiendaById);
 router.post("/tiendas", authenticate, spiderAdminController.createStore);
 router.put("/tienda/:id/limite", authenticate, spiderAdminController.updateUserLimit);
+router.put("/tienda/:id/precio", authenticate, spiderAdminController.updateStorePrice);
 
 // ============================================
 // RUTAS DE PAGOS

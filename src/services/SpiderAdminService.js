@@ -394,7 +394,7 @@ const getTiendaById = async (tiendaId) => {
   }
 };
 
-const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode }) => {
+const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode, precio }) => {
   try {
     const adminCheck = await query(
       `SELECT u.id_usuario, n.id_negocio
@@ -413,6 +413,7 @@ const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode }
     const telefonoCompleto = `${countryCode} ${telefono}`;
     const fechaPago = new Date();
     fechaPago.setDate(fechaPago.getDate() + 30);
+    const precioTienda = precio || 500;
 
     const insertQuery = `
       INSERT INTO tienda (
@@ -442,7 +443,7 @@ const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode }
       telefonoCompleto,
       3,
       fechaPago,
-      500
+      precioTienda
     ]);
 
     const row = result.rows[0];
@@ -505,6 +506,36 @@ const updateUserLimit = async ({ storeId, newLimit }) => {
   } catch (error) {
     console.error("Error en updateUserLimit:", error);
     throw new Error(error.message || "Error al actualizar límite");
+  }
+};
+
+const updateStorePrice = async ({ storeId, newPrice }) => {
+  try {
+    const queryStr = `
+      UPDATE tienda
+      SET precio = $1
+      WHERE id_tienda = $2 AND estado != 'eliminado'
+      RETURNING 
+        id_tienda as id,
+        nombre_tienda as nombre,
+        precio
+    `;
+
+    const result = await query(queryStr, [newPrice, storeId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Tienda no encontrada");
+    }
+
+    const row = result.rows[0];
+    return {
+      id: String(row.id),
+      nombre: row.nombre,
+      precio: parseFloat(row.precio)
+    };
+  } catch (error) {
+    console.error("Error en updateStorePrice:", error);
+    throw new Error(error.message || "Error al actualizar precio");
   }
 };
 
@@ -633,13 +664,21 @@ const registerPayment = async ({ adminId, storeId, monto, metodo, pagoEfectivo, 
 
     const row = result.rows[0];
 
-    const fechaPago = new Date();
-    fechaPago.setDate(fechaPago.getDate() + 30);
-
-    await query(
-      `UPDATE tienda SET fecha_pago = $1 WHERE id_tienda = $2`,
-      [fechaPago, storeId]
+    // Actualizar fecha_pago: sumar 30 días a la fecha actual de la tienda
+    const tiendaResult = await query(
+      `SELECT fecha_pago FROM tienda WHERE id_tienda = $1`,
+      [storeId]
     );
+
+    if (tiendaResult.rows.length > 0) {
+      const fechaPagoActual = new Date(tiendaResult.rows[0].fecha_pago);
+      fechaPagoActual.setDate(fechaPagoActual.getDate() + 30);
+      
+      await query(
+        `UPDATE tienda SET fecha_pago = $1 WHERE id_tienda = $2`,
+        [fechaPagoActual, storeId]
+      );
+    }
 
     return {
       id: String(row.id),
@@ -856,7 +895,7 @@ const approveRequest = async ({ requestId, adminId }) => {
         fecha_pago,
         precio
       ) VALUES ($1, $2, $3, $4, $5, 'activo', $6, $7)
-      RETURNING id_tienda, nombre_tienda, cant_usuarios
+      RETURNING id_tienda, nombre_tienda, cant_usuarios, precio
     `;
 
     const telefonoCompleto = `+591 ${solicitud.telefono}`;
@@ -1045,6 +1084,7 @@ module.exports = {
   getTiendaById,
   createStore,
   updateUserLimit,
+  updateStorePrice,
   getPaymentHistory,
   getAllPayments,
   registerPayment,
