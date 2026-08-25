@@ -73,7 +73,7 @@ const getStoresByNegocio = async (negocioId) => {
       countryCode: "+591",
       fechaCreacion: new Date().toISOString().slice(0, 10),
       usuarios: parseInt(row.usuarios_actuales) || 0,
-      limiteUsuarios: row.limite_usuarios || 1,
+      limiteUsuarios: row.limite_usuarios || 3,
       logo: row.logo ? row.logo.toString('base64') : "",
       proximoPago: row.proximo_pago ? row.proximo_pago.toISOString() : new Date(Date.now() + 86400000 * 30).toISOString(),
       montoPago: row.precio ? parseFloat(row.precio) : 500,
@@ -100,9 +100,9 @@ const getDashboardStats = async () => {
     const usuariosResult = await query(usuariosQuery);
 
     const ingresosQuery = `
-      SELECT COALESCE(SUM(precio), 0) as total
-      FROM tienda
-      WHERE estado != 'eliminado'
+      SELECT COALESCE(SUM(monto), 0) as total
+      FROM pago_tienda
+      WHERE estado = 'completado'
     `;
     const ingresosResult = await query(ingresosQuery);
 
@@ -116,7 +116,6 @@ const getDashboardStats = async () => {
     return {
       totalTiendas: parseInt(tiendasResult.rows[0]?.total || 0),
       totalUsuarios: parseInt(usuariosResult.rows[0]?.total || 0),
-      totalVentas: 0,
       totalIngresos: parseFloat(ingresosResult.rows[0]?.total || 0),
       requestsPendientes: parseInt(requestsResult.rows[0]?.total || 0)
     };
@@ -126,11 +125,32 @@ const getDashboardStats = async () => {
   }
 };
 
-const getVentasMensuales = async () => {
+const getIngresosMensuales = async () => {
   try {
-    return [];
+    const queryStr = `
+      SELECT 
+        TO_CHAR(fecha_pago, 'Mon') as mes,
+        COALESCE(SUM(monto), 0) as total
+      FROM pago_tienda
+      WHERE fecha_pago >= DATE_TRUNC('year', CURRENT_DATE)
+        AND estado = 'completado'
+      GROUP BY DATE_TRUNC('month', fecha_pago), TO_CHAR(fecha_pago, 'Mon')
+      ORDER BY DATE_TRUNC('month', fecha_pago)
+    `;
+
+    const result = await query(queryStr);
+
+    if (result.rows.length === 0) {
+      const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      return meses.map(mes => ({ mes, total: 0 }));
+    }
+
+    return result.rows.map(row => ({
+      mes: row.mes,
+      total: parseFloat(row.total) || 0
+    }));
   } catch (error) {
-    console.error("Error en getVentasMensuales:", error);
+    console.error("Error en getIngresosMensuales:", error);
     return [];
   }
 };
@@ -308,7 +328,7 @@ const getTiendas = async () => {
       countryCode: "+591",
       fechaCreacion: new Date().toISOString().slice(0, 10),
       usuarios: parseInt(row.usuarios_actuales) || 0,
-      limiteUsuarios: row.limite_usuarios || 1,
+      limiteUsuarios: row.limite_usuarios || 3,
       logo: row.logo ? row.logo.toString('base64') : "",
       proximoPago: row.proximo_pago ? row.proximo_pago.toISOString() : new Date(Date.now() + 86400000 * 30).toISOString(),
       montoPago: row.precio ? parseFloat(row.precio) : 500,
@@ -360,7 +380,7 @@ const getTiendaById = async (tiendaId) => {
       countryCode: "+591",
       fechaCreacion: new Date().toISOString().slice(0, 10),
       usuarios: parseInt(row.usuarios_actuales) || 0,
-      limiteUsuarios: row.limite_usuarios || 1,
+      limiteUsuarios: row.limite_usuarios || 3,
       logo: row.logo ? row.logo.toString('base64') : "",
       proximoPago: row.proximo_pago ? row.proximo_pago.toISOString() : new Date(Date.now() + 86400000 * 30).toISOString(),
       montoPago: row.precio ? parseFloat(row.precio) : 500,
@@ -420,7 +440,7 @@ const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode }
       nombre,
       ubicacion,
       telefonoCompleto,
-      1,
+      3,
       fechaPago,
       500
     ]);
@@ -447,7 +467,7 @@ const createStore = async ({ adminId, nombre, ubicacion, telefono, countryCode }
       countryCode: "+591",
       fechaCreacion: new Date().toISOString().slice(0, 10),
       usuarios: 0,
-      limiteUsuarios: row.limite_usuarios || 1,
+      limiteUsuarios: row.limite_usuarios || 3,
       logo: "",
       proximoPago: row.proximo_pago.toISOString(),
       montoPago: row.precio ? parseFloat(row.precio) : 500
@@ -699,7 +719,6 @@ const getRequests = async () => {
 
 const approveRequest = async ({ requestId, adminId }) => {
   try {
-    // 1. Obtener la solicitud
     const getQuery = `
       SELECT 
         s.id_solicitud, 
@@ -724,13 +743,11 @@ const approveRequest = async ({ requestId, adminId }) => {
     const solicitud = getResult.rows[0];
     const tipo = solicitud.tipo || 'nueva_tienda';
 
-    // 2. Si es solicitud de más usuarios
     if (tipo === 'mas_usuarios') {
       if (!solicitud.id_tienda) {
         throw new Error("No se encontró la tienda para actualizar el límite");
       }
 
-      // Obtener el límite actual de la tienda
       const tiendaActual = await query(
         `SELECT id_tienda, nombre_tienda, cant_usuarios 
          FROM tienda 
@@ -742,11 +759,10 @@ const approveRequest = async ({ requestId, adminId }) => {
         throw new Error("Tienda no encontrada");
       }
 
-      const limiteActual = tiendaActual.rows[0].cant_usuarios || 1;
+      const limiteActual = tiendaActual.rows[0].cant_usuarios || 3;
       const cantidadSolicitada = solicitud.cantidad_usuarios || 1;
       const nuevoLimite = limiteActual + cantidadSolicitada;
 
-      // Actualizar el límite (sumando)
       const updateQuery = `
         UPDATE tienda
         SET cant_usuarios = $1
@@ -760,7 +776,6 @@ const approveRequest = async ({ requestId, adminId }) => {
         throw new Error("Tienda no encontrada");
       }
 
-      // Actualizar solicitud
       await query(
         `UPDATE solicitud_tienda
          SET estado = 'aprobada', fecha_respuesta = NOW()
@@ -791,7 +806,7 @@ const approveRequest = async ({ requestId, adminId }) => {
       };
     }
 
-    // 3. Si es solicitud de nueva tienda (tipo === 'nueva_tienda')
+    // Nueva tienda
     const negocioId = solicitud.id_negocio;
 
     let idNegocio = negocioId;
@@ -827,7 +842,6 @@ const approveRequest = async ({ requestId, adminId }) => {
       );
     }
 
-    // Crear la tienda
     const fechaPago = new Date();
     fechaPago.setDate(fechaPago.getDate() + 30);
 
@@ -852,20 +866,18 @@ const approveRequest = async ({ requestId, adminId }) => {
       solicitud.tienda_nombre,
       solicitud.ubicacion,
       telefonoCompleto,
-      1,
+      3,
       fechaPago,
       500
     ]);
 
     const newTiendaId = storeResult.rows[0].id_tienda;
 
-    // Vincular admin a la tienda
     await query(
       `INSERT INTO usuario_tienda (id_usuario, id_tienda) VALUES ($1, $2)`,
       [solicitud.id_admin, newTiendaId]
     );
 
-    // Crear caja para la tienda
     const nombreCaja = `Caja ${solicitud.tienda_nombre}`;
     await query(
       `INSERT INTO caja (id_tienda, nombre_caja, total, estado) 
@@ -873,7 +885,6 @@ const approveRequest = async ({ requestId, adminId }) => {
       [newTiendaId, nombreCaja, 0, 'cerrada']
     );
 
-    // Actualizar solicitud
     const updateQuery = `
       UPDATE solicitud_tienda
       SET estado = 'aprobada', 
@@ -913,11 +924,11 @@ const approveRequest = async ({ requestId, adminId }) => {
       fechaRespuesta: row.fecha_respuesta ? row.fecha_respuesta.toISOString() : undefined,
       tipo: row.tipo || 'nueva_tienda',
       tipoLabel: 'Solicitud de nueva tienda',
-      cantidadUsuarios: row.cantidad_usuarios || 0,
+      cantidadUsuarios: 3,
       tiendaId: row.id_tienda ? String(row.id_tienda) : undefined,
       tiendaExistenteNombre: storeResult.rows[0].nombre_tienda,
       negocioId: row.id_negocio ? String(row.id_negocio) : undefined,
-      mensaje: `Tienda "${solicitud.tienda_nombre}" creada exitosamente`
+      mensaje: `Tienda "${solicitud.tienda_nombre}" creada exitosamente con 3 usuarios`
     };
   } catch (error) {
     console.error("Error en approveRequest:", error);
@@ -1025,7 +1036,7 @@ const saveTiendaLogo = async (tiendaId, logo) => {
 
 module.exports = {
   getDashboardStats,
-  getVentasMensuales,
+  getIngresosMensuales,
   getNegocios,
   getNegocioById,
   getAdmins,

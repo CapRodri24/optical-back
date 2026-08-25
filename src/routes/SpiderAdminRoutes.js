@@ -9,7 +9,7 @@ const { authenticate } = require("../middleware/loginmiddleware");
 // ============================================
 
 router.get("/dashboard/stats", authenticate, spiderAdminController.getDashboardStats);
-router.get("/dashboard/ventas-mensuales", authenticate, spiderAdminController.getVentasMensuales);
+router.get("/dashboard/ingresos-mensuales", authenticate, spiderAdminController.getIngresosMensuales);
 
 // ============================================
 // RUTAS DE NEGOCIOS

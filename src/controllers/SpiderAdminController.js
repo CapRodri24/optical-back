@@ -1,10 +1,6 @@
 // src/controllers/SpiderAdminController.js
 const spiderAdminService = require("../services/SpiderAdminService");
 
-// ============================================
-// CONTROLADORES DE ESTADÍSTICAS
-// ============================================
-
 const getDashboardStats = async (req, res) => {
   try {
     const stats = await spiderAdminService.getDashboardStats();
@@ -22,26 +18,22 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
-const getVentasMensuales = async (req, res) => {
+const getIngresosMensuales = async (req, res) => {
   try {
-    const ventas = await spiderAdminService.getVentasMensuales();
+    const ingresos = await spiderAdminService.getIngresosMensuales();
 
     res.json({
       success: true,
-      data: ventas
+      data: ingresos
     });
   } catch (error) {
-    console.error("Error en getVentasMensuales:", error);
+    console.error("Error en getIngresosMensuales:", error);
     res.status(500).json({
       success: false,
-      message: error.message || "Error al obtener ventas mensuales"
+      message: error.message || "Error al obtener ingresos mensuales"
     });
   }
 };
-
-// ============================================
-// CONTROLADORES DE NEGOCIOS
-// ============================================
 
 const getNegocios = async (req, res) => {
   try {
@@ -84,10 +76,6 @@ const getNegocioById = async (req, res) => {
     });
   }
 };
-
-// ============================================
-// CONTROLADORES DE ADMINISTRADORES (Backward compatible)
-// ============================================
 
 const getAdmins = async (req, res) => {
   try {
@@ -237,10 +225,6 @@ const updateUserLimit = async (req, res) => {
   }
 };
 
-// ============================================
-// CONTROLADORES DE PAGOS
-// ============================================
-
 const getPaymentHistory = async (req, res) => {
   try {
     const { tiendaId } = req.params;
@@ -328,10 +312,6 @@ const registerPayment = async (req, res) => {
   }
 };
 
-// ============================================
-// CONTROLADORES DE SOLICITUDES
-// ============================================
-
 const getRequests = async (req, res) => {
   try {
     const requests = await spiderAdminService.getRequests();
@@ -399,10 +379,6 @@ const rejectRequest = async (req, res) => {
     });
   }
 };
-
-// ============================================
-// CONTROLADORES DE LOGOS
-// ============================================
 
 const getTiendaLogos = async (req, res) => {
   try {
@@ -474,7 +450,7 @@ const saveTiendaLogo = async (req, res) => {
 
 module.exports = {
   getDashboardStats,
-  getVentasMensuales,
+  getIngresosMensuales,
   getNegocios,
   getNegocioById,
   getAdmins,
