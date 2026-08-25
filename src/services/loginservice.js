@@ -40,12 +40,12 @@ const authenticateUser = async (username, password) => {
     const user = result.rows[0];
     console.log("Usuario encontrado:", user.usuario, "Rol:", user.rol_nombre);
 
-    // 2. Verificar estado del usuario (Mensaje específico)
+    // 2. Verificar estado del usuario
     if (user.estado !== 'activo') {
       console.log("Usuario inactivo");
       return {
         success: false,
-        message: "Usuario inactivo"  // Mensaje específico para usuario inactivo
+        message: "Usuario inactivo"
       };
     }
 
@@ -62,7 +62,7 @@ const authenticateUser = async (username, password) => {
 
     console.log("Contraseña correcta");
 
-    // 4. Obtener tiendas del usuario SOLO ACTIVAS
+    // 4. Obtener tiendas del usuario SOLO ACTIVAS con LOGO
     let stores = [];
     
     // Si es Spider Admin, obtener TODAS las tiendas activas
@@ -74,7 +74,8 @@ const authenticateUser = async (username, password) => {
           t.nombre_tienda,
           t.id_negocio,
           n.nombre_negocio,
-          t.estado
+          t.estado,
+          t.logo  -- <--- INCLUIR LOGO
         FROM tienda t
         INNER JOIN negocio n ON t.id_negocio = n.id_negocio
         WHERE t.estado = 'activo'
@@ -83,14 +84,15 @@ const authenticateUser = async (username, password) => {
       stores = allStoresResult.rows;
       console.log("Tiendas activas totales (Spider Admin):", stores.length);
     } else {
-      // Para otros roles, obtener solo tiendas activas
+      // Para otros roles, obtener solo tiendas activas con LOGO
       const storesQuery = `
         SELECT 
           t.id_tienda,
           t.nombre_tienda,
           t.id_negocio,
           n.nombre_negocio,
-          t.estado
+          t.estado,
+          t.logo  -- <--- INCLUIR LOGO
         FROM usuario_tienda ut
         INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
         INNER JOIN negocio n ON t.id_negocio = n.id_negocio
@@ -156,6 +158,16 @@ const authenticateUser = async (username, password) => {
     );
 
     // 7. Preparar datos del usuario para retornar
+    // Convertir logo a base64 si existe
+    const storesWithLogo = stores.map(s => ({
+      id_tienda: s.id_tienda,
+      nombre_tienda: s.nombre_tienda,
+      id_negocio: s.id_negocio,
+      nombre_negocio: s.nombre_negocio,
+      estado: s.estado,
+      logo: s.logo ? s.logo.toString('base64') : null // <--- CONVERTIR A BASE64
+    }));
+
     const userData = {
       id_usuario: user.id_usuario,
       id_persona: user.id_persona,
@@ -168,24 +180,24 @@ const authenticateUser = async (username, password) => {
       status: user.estado,
       grantedPermissions: grantedPermissions,
       revokedPermissions: revokedPermissions,
-      tiendaIds: stores.map(s => s.id_tienda),
-      tiendaNombre: stores.length > 0 ? stores[0].nombre_tienda : null,
-      negocioId: stores.length > 0 ? stores[0].id_negocio : null,
-      stores: stores
+      tiendaIds: storesWithLogo.map(s => s.id_tienda),
+      tiendaNombre: storesWithLogo.length > 0 ? storesWithLogo[0].nombre_tienda : null,
+      negocioId: storesWithLogo.length > 0 ? storesWithLogo[0].id_negocio : null,
+      stores: storesWithLogo
     };
 
     console.log("Datos de usuario a retornar:");
     console.log("- tiendaIds:", userData.tiendaIds);
     console.log("- tiendaNombre:", userData.tiendaNombre);
-    console.log("- stores activas:", userData.stores.length);
+    console.log("- stores activas con logo:", userData.stores.length);
 
     return {
       success: true,
       message: "Autenticación exitosa",
       token,
       user: userData,
-      stores: stores,
-      negocioId: stores.length > 0 ? stores[0].id_negocio : null
+      stores: storesWithLogo,
+      negocioId: storesWithLogo.length > 0 ? storesWithLogo[0].id_negocio : null
     };
 
   } catch (error) {
@@ -199,14 +211,15 @@ const getUserStores = async (userId) => {
     console.log("=== getUserStores ===");
     console.log("userId:", userId);
     
-    // Obtener solo tiendas activas
+    // Obtener solo tiendas activas con LOGO
     const storesQuery = `
       SELECT 
         t.id_tienda,
         t.nombre_tienda,
         t.id_negocio,
         n.nombre_negocio,
-        t.estado
+        t.estado,
+        t.logo  -- <--- INCLUIR LOGO
       FROM usuario_tienda ut
       INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
       INNER JOIN negocio n ON t.id_negocio = n.id_negocio
@@ -216,7 +229,16 @@ const getUserStores = async (userId) => {
 
     const result = await query(storesQuery, [userId]);
     console.log("Tiendas activas encontradas:", result.rows.length);
-    return result.rows;
+    
+    // Convertir logo a base64 si existe
+    return result.rows.map(s => ({
+      id_tienda: s.id_tienda,
+      nombre_tienda: s.nombre_tienda,
+      id_negocio: s.id_negocio,
+      nombre_negocio: s.nombre_negocio,
+      estado: s.estado,
+      logo: s.logo ? s.logo.toString('base64') : null // <--- CONVERTIR A BASE64
+    }));
   } catch (error) {
     console.error("Error al obtener tiendas del usuario:", error);
     return [];

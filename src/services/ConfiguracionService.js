@@ -65,7 +65,7 @@ const verifyUserStoreAccess = async (userId, tiendaId) => {
 // FUNCIONES DE TIENDAS
 // ============================================
 
-// Obtener tiendas del administrador
+// Obtener tiendas del administrador - MODIFICADO para incluir logo
 const getTiendasAdmin = async (userId, userRole) => {
   try {
     let queryStr = "";
@@ -120,7 +120,7 @@ const getTiendasAdmin = async (userId, userRole) => {
       nombre: row.nombre,
       telefono: row.telefono || "",
       ubicacion: row.ubicacion || "",
-      logo: row.logo ? row.logo.toString('base64') : "",
+      logo: row.logo ? row.logo.toString('base64') : "", // <--- MODIFICADO: incluir logo
       maxUsuarios: row.max_usuarios || 1,
       usuariosActuales: parseInt(row.usuarios_actuales) || 0,
       estado: row.estado || "activo",
@@ -228,7 +228,7 @@ const actualizarTienda = async ({ tiendaId, userId, telefono, ubicacion, country
   }
 };
 
-// Subir logo de tienda - CORREGIDO
+// Subir logo de tienda
 const subirLogo = async ({ tiendaId, userId, logo }) => {
   try {
     // Verificar acceso
@@ -472,8 +472,8 @@ const actualizarSolicitud = async (solicitudId, estado) => {
         solicitud.tienda_nombre,
         solicitud.ubicacion,
         solicitud.telefono,
-        1, // cantidad de usuarios por defecto
-        500 // precio por defecto
+        1,
+        500
       ]);
 
       const newTiendaId = storeResult.rows[0].id_tienda;
