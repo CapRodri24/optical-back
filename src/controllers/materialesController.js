@@ -269,9 +269,17 @@ const deleteMaterial = async (req, res) => {
 
 const addStock = async (req, res) => {
   try {
-    const { materialId, tiendaId, cantidad, negocioId } = req.body;
+    const { materialId, tiendaId, cantidad, negocioId, userId } = req.body;
 
-    console.log("🔍 addStock - materialId:", materialId, "tiendaId:", tiendaId, "cantidad:", cantidad, "negocioId:", negocioId);
+    console.log("🔍 addStock - materialId:", materialId, "tiendaId:", tiendaId, "cantidad:", cantidad, "negocioId:", negocioId, "userId:", userId);
+
+    // Validar userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de usuario requerido"
+      });
+    }
 
     if (!negocioId) {
       return res.status(400).json({
@@ -309,7 +317,13 @@ const addStock = async (req, res) => {
       });
     }
 
-    const material = await materialesService.addStock(materialId, tiendaId, cantidad, negocioIdNum);
+    const material = await materialesService.addStock(
+      materialId, 
+      tiendaId, 
+      cantidad, 
+      negocioIdNum,
+      userId
+    );
 
     res.json({
       success: true,
@@ -327,9 +341,17 @@ const addStock = async (req, res) => {
 
 const transferStock = async (req, res) => {
   try {
-    const { materialId, tiendaOrigen, tiendaDestino, cantidad, negocioId } = req.body;
+    const { materialId, tiendaOrigen, tiendaDestino, cantidad, negocioId, userId } = req.body;
 
-    console.log("🔍 transferStock - materialId:", materialId, "origen:", tiendaOrigen, "destino:", tiendaDestino, "cantidad:", cantidad, "negocioId:", negocioId);
+    console.log("🔍 transferStock - materialId:", materialId, "origen:", tiendaOrigen, "destino:", tiendaDestino, "cantidad:", cantidad, "negocioId:", negocioId, "userId:", userId);
+
+    // Validar userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de usuario requerido"
+      });
+    }
 
     if (!negocioId) {
       return res.status(400).json({
@@ -372,7 +394,8 @@ const transferStock = async (req, res) => {
       tiendaOrigen, 
       tiendaDestino, 
       cantidad, 
-      negocioIdNum
+      negocioIdNum,
+      userId
     );
 
     res.json({

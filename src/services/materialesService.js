@@ -356,11 +356,13 @@ const deleteMaterial = async (id, negocioId) => {
       throw new Error("Material no encontrado");
     }
 
+    // Eliminar registros de material_tienda
     await query(
       'DELETE FROM material_tienda WHERE id_material = $1',
       [materialId]
     );
 
+    // Eliminar el material
     await query(
       'DELETE FROM material WHERE id_material = $1 AND id_negocio = $2',
       [materialId, negocioIdNum]
@@ -373,9 +375,36 @@ const deleteMaterial = async (id, negocioId) => {
   }
 };
 
-const addStock = async (materialId, tiendaId, cantidad, negocioId) => {
+/**
+ * Registrar un movimiento de stock en la tabla movimientos_stock
+ */
+const registrarMovimientoStock = async (idMaterialTienda, idUsuario, cantidadAnterior, cantidadNueva, cantidadModificada) => {
   try {
-    console.log("🔍 addStock service - materialId:", materialId, "tiendaId:", tiendaId, "cantidad:", cantidad, "negocioId:", negocioId);
+    await query(
+      `
+      INSERT INTO movimientos_stock (
+        id_material_tienda,
+        id_usuario,
+        cantidad_anterior,
+        cantidad_nueva,
+        cantidad_modificada
+      ) VALUES ($1, $2, $3, $4, $5)
+      `,
+      [idMaterialTienda, idUsuario, cantidadAnterior, cantidadNueva, cantidadModificada]
+    );
+    console.log("✅ Movimiento de stock registrado correctamente");
+  } catch (error) {
+    console.error("Error al registrar movimiento de stock:", error);
+    // No lanzamos el error para que no interrumpa la operación principal
+  }
+};
+
+/**
+ * Agregar stock a un material en una tienda específica
+ */
+const addStock = async (materialId, tiendaId, cantidad, negocioId, userId) => {
+  try {
+    console.log("🔍 addStock service - materialId:", materialId, "tiendaId:", tiendaId, "cantidad:", cantidad, "negocioId:", negocioId, "userId:", userId);
 
     const materialIdNum = parseInt(materialId);
     if (isNaN(materialIdNum)) {
@@ -385,6 +414,16 @@ const addStock = async (materialId, tiendaId, cantidad, negocioId) => {
     const negocioIdNum = parseInt(negocioId);
     if (isNaN(negocioIdNum)) {
       throw new Error("ID de negocio inválido");
+    }
+
+    const tiendaIdNum = parseInt(tiendaId);
+    if (isNaN(tiendaIdNum)) {
+      throw new Error("ID de tienda inválido");
+    }
+
+    const userIdNum = parseInt(userId);
+    if (isNaN(userIdNum)) {
+      throw new Error("ID de usuario inválido");
     }
 
     const existing = await getMaterialById(materialIdNum, negocioId);
@@ -394,13 +433,28 @@ const addStock = async (materialId, tiendaId, cantidad, negocioId) => {
 
     const tiendaResult = await query(
       'SELECT id_tienda FROM tienda WHERE id_tienda = $1 AND id_negocio = $2',
-      [tiendaId, negocioIdNum]
+      [tiendaIdNum, negocioIdNum]
     );
     if (tiendaResult.rows.length === 0) {
       throw new Error("Tienda no encontrada");
     }
 
-    await query(
+    // Obtener el stock actual antes de la actualización
+    const stockActualResult = await query(
+      'SELECT id_material_tienda, stock FROM material_tienda WHERE id_material = $1 AND id_tienda = $2',
+      [materialIdNum, tiendaIdNum]
+    );
+
+    let idMaterialTienda;
+    let stockAnterior = 0;
+
+    if (stockActualResult.rows.length > 0) {
+      idMaterialTienda = stockActualResult.rows[0].id_material_tienda;
+      stockAnterior = parseInt(stockActualResult.rows[0].stock) || 0;
+    }
+
+    // Actualizar el stock
+    const result = await query(
       `
       INSERT INTO material_tienda (id_material, id_tienda, stock, stock_minimo)
       VALUES ($1, $2, $3, (
@@ -409,8 +463,21 @@ const addStock = async (materialId, tiendaId, cantidad, negocioId) => {
       ))
       ON CONFLICT (id_material, id_tienda) 
       DO UPDATE SET stock = material_tienda.stock + $3
+      RETURNING id_material_tienda, stock
       `,
-      [materialIdNum, tiendaId, cantidad]
+      [materialIdNum, tiendaIdNum, cantidad]
+    );
+
+    const stockNuevo = parseInt(result.rows[0].stock) || 0;
+    idMaterialTienda = result.rows[0].id_material_tienda;
+
+    // Registrar el movimiento en la tabla movimientos_stock
+    await registrarMovimientoStock(
+      idMaterialTienda,
+      userIdNum,
+      stockAnterior,
+      stockNuevo,
+      cantidad
     );
 
     return await getMaterialById(materialIdNum, negocioId);
@@ -420,9 +487,12 @@ const addStock = async (materialId, tiendaId, cantidad, negocioId) => {
   }
 };
 
-const transferStock = async (materialId, tiendaOrigen, tiendaDestino, cantidad, negocioId) => {
+/**
+ * Transferir stock entre tiendas
+ */
+const transferStock = async (materialId, tiendaOrigen, tiendaDestino, cantidad, negocioId, userId) => {
   try {
-    console.log("🔍 transferStock service - materialId:", materialId, "origen:", tiendaOrigen, "destino:", tiendaDestino, "cantidad:", cantidad, "negocioId:", negocioId);
+    console.log("🔍 transferStock service - materialId:", materialId, "origen:", tiendaOrigen, "destino:", tiendaDestino, "cantidad:", cantidad, "negocioId:", negocioId, "userId:", userId);
 
     const materialIdNum = parseInt(materialId);
     if (isNaN(materialIdNum)) {
@@ -434,42 +504,98 @@ const transferStock = async (materialId, tiendaOrigen, tiendaDestino, cantidad, 
       throw new Error("ID de negocio inválido");
     }
 
+    const tiendaOrigenNum = parseInt(tiendaOrigen);
+    if (isNaN(tiendaOrigenNum)) {
+      throw new Error("ID de tienda origen inválido");
+    }
+
+    const tiendaDestinoNum = parseInt(tiendaDestino);
+    if (isNaN(tiendaDestinoNum)) {
+      throw new Error("ID de tienda destino inválido");
+    }
+
+    const userIdNum = parseInt(userId);
+    if (isNaN(userIdNum)) {
+      throw new Error("ID de usuario inválido");
+    }
+
     const existing = await getMaterialById(materialIdNum, negocioId);
     if (!existing) {
       throw new Error("Material no encontrado");
     }
 
+    // Obtener stock de la tienda origen
     const stockOrigenResult = await query(
-      'SELECT stock FROM material_tienda WHERE id_material = $1 AND id_tienda = $2',
-      [materialIdNum, tiendaOrigen]
+      'SELECT id_material_tienda, stock FROM material_tienda WHERE id_material = $1 AND id_tienda = $2',
+      [materialIdNum, tiendaOrigenNum]
     );
     
     if (stockOrigenResult.rows.length === 0) {
       throw new Error("No hay stock en la tienda de origen");
     }
 
-    const stockOrigen = stockOrigenResult.rows[0].stock || 0;
+    const idMaterialTiendaOrigen = stockOrigenResult.rows[0].id_material_tienda;
+    const stockOrigen = parseInt(stockOrigenResult.rows[0].stock) || 0;
+    
     if (stockOrigen < cantidad) {
       throw new Error(`Stock insuficiente. Disponible: ${stockOrigen}`);
     }
 
+    // Obtener stock actual de la tienda destino
+    const stockDestinoResult = await query(
+      'SELECT id_material_tienda, stock FROM material_tienda WHERE id_material = $1 AND id_tienda = $2',
+      [materialIdNum, tiendaDestinoNum]
+    );
+
+    let idMaterialTiendaDestino;
+    let stockDestinoAnterior = 0;
+
+    if (stockDestinoResult.rows.length > 0) {
+      idMaterialTiendaDestino = stockDestinoResult.rows[0].id_material_tienda;
+      stockDestinoAnterior = parseInt(stockDestinoResult.rows[0].stock) || 0;
+    }
+
+    // Actualizar stock en tienda origen (restar)
     await query(
       `
       UPDATE material_tienda 
       SET stock = stock - $1 
       WHERE id_material = $2 AND id_tienda = $3
       `,
-      [cantidad, materialIdNum, tiendaOrigen]
+      [cantidad, materialIdNum, tiendaOrigenNum]
     );
 
-    await query(
+    // Actualizar stock en tienda destino (sumar)
+    const resultDestino = await query(
       `
       INSERT INTO material_tienda (id_material, id_tienda, stock, stock_minimo)
       VALUES ($1, $2, $3, 0)
       ON CONFLICT (id_material, id_tienda) 
       DO UPDATE SET stock = material_tienda.stock + $3
+      RETURNING id_material_tienda, stock
       `,
-      [materialIdNum, tiendaDestino, cantidad]
+      [materialIdNum, tiendaDestinoNum, cantidad]
+    );
+
+    const stockDestinoNuevo = parseInt(resultDestino.rows[0].stock) || 0;
+    idMaterialTiendaDestino = resultDestino.rows[0].id_material_tienda;
+
+    // Registrar movimiento de salida (origen)
+    await registrarMovimientoStock(
+      idMaterialTiendaOrigen,
+      userIdNum,
+      stockOrigen,
+      stockOrigen - cantidad,
+      -cantidad
+    );
+
+    // Registrar movimiento de entrada (destino)
+    await registrarMovimientoStock(
+      idMaterialTiendaDestino,
+      userIdNum,
+      stockDestinoAnterior,
+      stockDestinoNuevo,
+      cantidad
     );
 
     return await getMaterialById(materialIdNum, negocioId);
