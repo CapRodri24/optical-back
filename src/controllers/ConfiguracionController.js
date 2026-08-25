@@ -1,5 +1,24 @@
 // src/controllers/ConfiguracionController.js
 const configuracionService = require("../services/ConfiguracionService");
+const multer = require("multer");
+const path = require("path");
+
+// Configurar multer para manejar archivos en memoria
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos JPG y PNG'));
+    }
+  }
+});
 
 // ============================================
 // CONTROLADORES DE TIENDAS
@@ -87,55 +106,42 @@ const actualizarTienda = async (req, res) => {
   }
 };
 
+// CORREGIDO: Usar multer para manejar el logo como archivo
 const subirLogo = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id_usuario;
-    const { logo } = req.body;
 
-    if (!logo) {
-      return res.status(400).json({
-        success: false,
-        message: "Logo es requerido"
+    // Usar multer para procesar el archivo
+    upload.single('logo')(req, res, async (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Error al subir el archivo"
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "Logo es requerido"
+        });
+      }
+
+      // Convertir el buffer a base64
+      const logoBase64 = req.file.buffer.toString('base64');
+
+      const resultado = await configuracionService.subirLogo({
+        tiendaId: id,
+        userId,
+        logo: logoBase64
       });
-    }
 
-    // Validar tamaño de la imagen (máximo 5MB)
-    const logoSize = Buffer.from(logo.split(',')[1] || logo, 'base64').length;
-    if (logoSize > 5 * 1024 * 1024) {
-      return res.status(400).json({
-        success: false,
-        message: "El logo no puede superar los 5MB"
+      res.json({
+        success: true,
+        data: resultado,
+        message: "Logo actualizado correctamente"
       });
-    }
-
-    // Validar formato de la imagen (jpg o png)
-    const mimeType = logo.match(/^data:(image\/[a-zA-Z]+);base64,/);
-    if (!mimeType) {
-      return res.status(400).json({
-        success: false,
-        message: "Formato de imagen no válido"
-      });
-    }
-
-    const format = mimeType[1];
-    if (format !== 'image/jpeg' && format !== 'image/png') {
-      return res.status(400).json({
-        success: false,
-        message: "Solo se permiten formatos JPG y PNG"
-      });
-    }
-
-    const resultado = await configuracionService.subirLogo({
-      tiendaId: id,
-      userId,
-      logo
-    });
-
-    res.json({
-      success: true,
-      data: resultado,
-      message: "Logo actualizado correctamente"
     });
   } catch (error) {
     console.error("Error en subirLogo:", error);

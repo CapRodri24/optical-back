@@ -228,7 +228,7 @@ const actualizarTienda = async ({ tiendaId, userId, telefono, ubicacion, country
   }
 };
 
-// Subir logo de tienda
+// Subir logo de tienda - CORREGIDO
 const subirLogo = async ({ tiendaId, userId, logo }) => {
   try {
     // Verificar acceso
@@ -237,8 +237,8 @@ const subirLogo = async ({ tiendaId, userId, logo }) => {
       throw new Error("No tienes acceso a esta tienda");
     }
 
-    // Convertir base64 a bytea
-    const logoBuffer = Buffer.from(logo.split(',')[1] || logo, 'base64');
+    // logo ya viene como base64 desde el controlador
+    const logoBuffer = Buffer.from(logo, 'base64');
 
     const queryStr = `
       UPDATE tienda
@@ -334,7 +334,7 @@ const getSolicitudes = async (userId) => {
   }
 };
 
-// Crear solicitud - CORREGIDO (sin admin_phone)
+// Crear solicitud
 const crearSolicitud = async ({
   adminId,
   adminName,
