@@ -12,6 +12,9 @@ router.delete("/:id", usuariosController.deleteUser);
 router.patch("/:id/status", usuariosController.toggleUserStatus);
 router.patch("/:id/permissions", usuariosController.updateUserPermissions);
 
+// NUEVA RUTA: Cambiar contraseña
+router.post("/:id/change-password", usuariosController.changePassword);
+
 // Rutas de tiendas
 router.get("/tiendas/:tiendaId/limite", usuariosController.getMaxUsersForStore);
 

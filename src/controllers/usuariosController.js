@@ -87,6 +87,51 @@ const getUserStats = async (req, res) => {
 };
 
 // ============================================
+// NUEVO: CAMBIAR CONTRASEÑA
+// ============================================
+
+const changePassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validar que los campos estén presentes
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La contraseña actual y la nueva contraseña son obligatorias" 
+      });
+    }
+    
+    // Validar que la nueva contraseña tenga al menos 6 caracteres
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La nueva contraseña debe tener al menos 6 caracteres" 
+      });
+    }
+    
+    // Validar que la nueva contraseña contenga letras y números
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "La nueva contraseña debe contener al menos una letra y un número" 
+      });
+    }
+    
+    // Cambiar la contraseña
+    const result = await usuariosService.changePassword(id, currentPassword, newPassword);
+    res.json(result);
+  } catch (error) {
+    console.error("Error en changePassword:", error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message || "Error al cambiar la contraseña" 
+    });
+  }
+};
+
+// ============================================
 // TIENDAS - Solo lo necesario
 // ============================================
 
@@ -139,6 +184,7 @@ module.exports = {
   toggleUserStatus,
   updateUserPermissions,
   getUserStats,
+  changePassword, // <--- NUEVO
   getMaxUsersForStore,
   getNegocioResponsable,
   deleteUserFromStore,
