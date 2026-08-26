@@ -14,12 +14,19 @@ const searchOrganicos = async (req, res) => {
       });
     }
 
-    const { term, negocioId } = req.query;
+    const { term, negocioId, tipo } = req.query;
 
     if (!negocioId) {
       return res.status(400).json({
         success: false,
         message: "ID de negocio requerido"
+      });
+    }
+
+    if (!tipo) {
+      return res.status(400).json({
+        success: false,
+        message: "Tipo de orgánico requerido (Monofocal, Bifocal, Multifocal)"
       });
     }
 
@@ -30,7 +37,7 @@ const searchOrganicos = async (req, res) => {
       username: req.user.usuario
     };
 
-    const results = await nuevaVentaService.searchOrganicos(term, userInfo);
+    const results = await nuevaVentaService.searchOrganicos(term, tipo, userInfo);
 
     res.json({
       success: true,
@@ -141,9 +148,16 @@ const searchMateriales = async (req, res) => {
       });
     }
 
+    if (!tiendaId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de tienda requerido para buscar materiales"
+      });
+    }
+
     const userInfo = {
       negocioId: parseInt(negocioId),
-      tiendaId: tiendaId || null,
+      tiendaId: parseInt(tiendaId),
       userId: req.user.id_usuario,
       role: req.user.rol_nombre,
       username: req.user.usuario
@@ -186,9 +200,16 @@ const searchProductos = async (req, res) => {
       });
     }
 
+    if (!tiendaId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de tienda requerido para buscar productos"
+      });
+    }
+
     const userInfo = {
       negocioId: parseInt(negocioId),
-      tiendaId: tiendaId || null,
+      tiendaId: parseInt(tiendaId),
       userId: req.user.id_usuario,
       role: req.user.rol_nombre,
       username: req.user.usuario

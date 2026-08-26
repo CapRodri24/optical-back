@@ -2,10 +2,10 @@
 const { query } = require("../../db");
 
 // ============================================
-// BUSCAR ORGÁNICOS
+// BUSCAR ORGÁNICOS (FILTRADO POR TIPO)
 // ============================================
 
-const searchOrganicos = async (term, userInfo) => {
+const searchOrganicos = async (term, tipo, userInfo) => {
   try {
     const { negocioId } = userInfo;
 
@@ -13,6 +13,7 @@ const searchOrganicos = async (term, userInfo) => {
       SELECT 
         o.id_organico,
         o.nombre_organico,
+        o.tipo,
         ro.id_rango_organico,
         ro.precio_compra,
         ro.precio_venta,
@@ -21,12 +22,13 @@ const searchOrganicos = async (term, userInfo) => {
       FROM organico o
       INNER JOIN rango_organico ro ON o.id_organico = ro.id_organico
       WHERE o.id_negocio = $1 AND o.estado = 'activo'
+        AND o.tipo = $2
     `;
 
-    const params = [parseInt(negocioId)];
+    const params = [parseInt(negocioId), tipo];
 
     if (term && term.trim()) {
-      queryText += ` AND o.nombre_organico ILIKE $2`;
+      queryText += ` AND o.nombre_organico ILIKE $3`;
       params.push(`%${term.trim()}%`);
     }
 
@@ -40,6 +42,7 @@ const searchOrganicos = async (term, userInfo) => {
         organicMap[row.id_organico] = {
           id_organico: row.id_organico,
           nombre_organico: row.nombre_organico,
+          tipo: row.tipo,
           rangos: []
         };
       }
@@ -124,7 +127,7 @@ const searchMateriales = async (tipo, term, userInfo) => {
         COALESCE(mt.stock, 0) as stock
       FROM material m
       INNER JOIN tipo_material tm ON m.id_tipo_material = tm.id_tipo_material
-      LEFT JOIN material_tienda mt ON m.id_material = mt.id_material AND mt.id_tienda = $3
+      INNER JOIN material_tienda mt ON m.id_material = mt.id_material AND mt.id_tienda = $3
       WHERE m.id_negocio = $1
         AND tm.nombre_tipo_material ILIKE $2
     `;
