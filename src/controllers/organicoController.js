@@ -29,24 +29,35 @@ const getOrganicos = async (req, res) => {
 
 const createOrganico = async (req, res) => {
   try {
-    const { nombre, rangos } = req.body;
+    const { nombre, tipo, rangos } = req.body;  // Añadido tipo
     const userId = req.user.id_usuario;
     const userRole = req.user.rol_nombre;
 
     console.log("=== createOrganico Controller ===");
     console.log("userId:", userId);
     console.log("nombre:", nombre);
+    console.log("tipo:", tipo);  // Añadido log
     console.log("rangos:", rangos?.length);
 
-    if (!nombre || !rangos || rangos.length === 0) {
+    if (!nombre || !tipo || !rangos || rangos.length === 0) {  // Añadido validación de tipo
       return res.status(400).json({
         success: false,
-        message: "Nombre y rangos son requeridos"
+        message: "Nombre, tipo y rangos son requeridos"
+      });
+    }
+
+    // Validar que el tipo sea uno de los permitidos
+    const tiposPermitidos = ['Monofocal', 'Bifocal', 'Multifocal'];
+    if (!tiposPermitidos.includes(tipo)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tipo inválido. Debe ser Monofocal, Bifocal o Multifocal"
       });
     }
 
     const nuevoOrganico = await organicoService.createOrganico(userId, userRole, {
       nombre,
+      tipo,  // Añadido tipo
       rangos
     });
 
@@ -67,24 +78,35 @@ const createOrganico = async (req, res) => {
 const updateOrganico = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, rangos } = req.body;
+    const { nombre, tipo, rangos } = req.body;  // Añadido tipo
     const userId = req.user.id_usuario;
     const userRole = req.user.rol_nombre;
 
     console.log("=== updateOrganico Controller ===");
     console.log("id:", id);
     console.log("nombre:", nombre);
+    console.log("tipo:", tipo);  // Añadido log
     console.log("rangos:", rangos?.length);
 
-    if (!nombre || !rangos || rangos.length === 0) {
+    if (!nombre || !tipo || !rangos || rangos.length === 0) {  // Añadido validación de tipo
       return res.status(400).json({
         success: false,
-        message: "Nombre y rangos son requeridos"
+        message: "Nombre, tipo y rangos son requeridos"
+      });
+    }
+
+    // Validar que el tipo sea uno de los permitidos
+    const tiposPermitidos = ['Monofocal', 'Bifocal', 'Multifocal'];
+    if (!tiposPermitidos.includes(tipo)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tipo inválido. Debe ser Monofocal, Bifocal o Multifocal"
       });
     }
 
     const organicoActualizado = await organicoService.updateOrganico(userId, userRole, id, {
       nombre,
+      tipo,  // Añadido tipo
       rangos
     });
 

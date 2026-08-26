@@ -47,11 +47,12 @@ const getOrganicos = async (userId, userRole, negocioId = null) => {
       return [];
     }
 
-    // Obtener orgánicos activos de los negocios
+    // Obtener orgánicos activos de los negocios - AÑADIDO tipo
     const organicosQuery = `
       SELECT 
         id_organico,
         nombre_organico as nombre,
+        tipo,  -- Añadido campo tipo
         estado
       FROM organico
       WHERE id_negocio = ANY($1::integer[])
@@ -92,6 +93,7 @@ const getOrganicos = async (userId, userRole, negocioId = null) => {
       organicos.push({
         id: String(org.id_organico),
         nombre: org.nombre,
+        tipo: org.tipo,  // Añadido campo tipo
         estado: org.estado,
         rangos: rangos
       });
@@ -107,11 +109,12 @@ const getOrganicos = async (userId, userRole, negocioId = null) => {
 
 const createOrganico = async (userId, userRole, data) => {
   try {
-    const { nombre, rangos } = data;
+    const { nombre, tipo, rangos } = data;  // Añadido tipo
 
     console.log("=== createOrganico Service ===");
     console.log("userId:", userId);
     console.log("nombre:", nombre);
+    console.log("tipo:", tipo);  // Añadido log
     console.log("rangos:", rangos.length);
 
     // Obtener el negocio del usuario
@@ -159,14 +162,14 @@ const createOrganico = async (userId, userRole, data) => {
       throw new Error(`Ya existe un orgánico con el nombre "${nombre}" en este negocio`);
     }
 
-    // 1. Insertar el orgánico
+    // 1. Insertar el orgánico - AÑADIDO campo tipo
     const insertOrganicoQuery = `
-      INSERT INTO organico (nombre_organico, id_negocio, estado)
-      VALUES ($1, $2, 'activo')
+      INSERT INTO organico (nombre_organico, id_negocio, tipo, estado)
+      VALUES ($1, $2, $3, 'activo')
       RETURNING id_organico
     `;
 
-    const organicoResult = await query(insertOrganicoQuery, [nombre, negocioId]);
+    const organicoResult = await query(insertOrganicoQuery, [nombre, negocioId, tipo]);
     const organicoId = organicoResult.rows[0].id_organico;
 
     console.log("Orgánico creado con ID:", organicoId);
@@ -200,6 +203,7 @@ const createOrganico = async (userId, userRole, data) => {
     return {
       id: String(organicoId),
       nombre,
+      tipo,  // Añadido tipo
       estado: 'activo',
       rangos
     };
@@ -211,11 +215,12 @@ const createOrganico = async (userId, userRole, data) => {
 
 const updateOrganico = async (userId, userRole, organicoId, data) => {
   try {
-    const { nombre, rangos } = data;
+    const { nombre, tipo, rangos } = data;  // Añadido tipo
 
     console.log("=== updateOrganico Service ===");
     console.log("organicoId:", organicoId);
     console.log("nombre:", nombre);
+    console.log("tipo:", tipo);  // Añadido log
     console.log("rangos:", rangos.length);
 
     // Verificar que el orgánico existe y está activo
@@ -246,14 +251,14 @@ const updateOrganico = async (userId, userRole, organicoId, data) => {
       throw new Error(`Ya existe un orgánico con el nombre "${nombre}" en este negocio`);
     }
 
-    // 1. Actualizar nombre
+    // 1. Actualizar nombre y tipo - AÑADIDO tipo
     const updateNombreQuery = `
       UPDATE organico 
-      SET nombre_organico = $1 
-      WHERE id_organico = $2
+      SET nombre_organico = $1, tipo = $2
+      WHERE id_organico = $3
     `;
 
-    await query(updateNombreQuery, [nombre, organicoId]);
+    await query(updateNombreQuery, [nombre, tipo, organicoId]);
 
     // 2. Eliminar rangos existentes
     const deleteRangosQuery = `
@@ -292,6 +297,7 @@ const updateOrganico = async (userId, userRole, organicoId, data) => {
     return {
       id: String(organicoId),
       nombre,
+      tipo,  // Añadido tipo
       estado: 'activo',
       rangos
     };
