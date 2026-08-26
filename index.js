@@ -69,6 +69,8 @@ const SpiderAdminRoutes = require("./src/routes/SpiderAdminRoutes");
 app.use("/api/spider-admin", SpiderAdminRoutes);
 const RouteMedidasOftalmicasRoutess = require("./src/routes/MedidasOftalmicasRoutes");
 app.use("/api/medidas-oftalmicas", RouteMedidasOftalmicasRoutess);
+const NuevaVentaRoutes = require("./src/routes/NuevaVentaRoutes");
+app.use("/api/nueva-venta", NuevaVentaRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
