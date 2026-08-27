@@ -2,7 +2,7 @@
 const nuevaVentaService = require("../services/NuevaVentaService");
 
 // ============================================
-// BUSCAR ORGÁNICOS
+// BUSCAR ORGÁNICOS (CON FILTRO POR GRADO)
 // ============================================
 
 const searchOrganicos = async (req, res) => {
@@ -14,7 +14,7 @@ const searchOrganicos = async (req, res) => {
       });
     }
 
-    const { term, negocioId, tipo } = req.query;
+    const { term, negocioId, tipo, grado } = req.query;
 
     if (!negocioId) {
       return res.status(400).json({
@@ -30,6 +30,13 @@ const searchOrganicos = async (req, res) => {
       });
     }
 
+    if (!grado || isNaN(parseFloat(grado))) {
+      return res.status(400).json({
+        success: false,
+        message: "Grado requerido para filtrar los orgánicos"
+      });
+    }
+
     const userInfo = {
       negocioId: parseInt(negocioId),
       userId: req.user.id_usuario,
@@ -37,7 +44,7 @@ const searchOrganicos = async (req, res) => {
       username: req.user.usuario
     };
 
-    const results = await nuevaVentaService.searchOrganicos(term, tipo, userInfo);
+    const results = await nuevaVentaService.searchOrganicos(term, tipo, parseFloat(grado), userInfo);
 
     res.json({
       success: true,

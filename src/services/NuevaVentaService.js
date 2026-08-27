@@ -2,14 +2,15 @@
 const { query } = require("../../db");
 
 // ============================================
-// BUSCAR ORGÁNICOS (FILTRADO POR TIPO)
+// BUSCAR ORGÁNICOS (FILTRADO POR TIPO Y GRADO)
 // ============================================
 
-const searchOrganicos = async (term, tipo, userInfo) => {
+const searchOrganicos = async (term, tipo, grado, userInfo) => {
   try {
     const { negocioId } = userInfo;
 
-    let queryText = `
+    // Primero buscar los orgánicos que coinciden con el tipo y nombre
+    let searchQuery = `
       SELECT 
         o.id_organico,
         o.nombre_organico,
@@ -23,19 +24,21 @@ const searchOrganicos = async (term, tipo, userInfo) => {
       INNER JOIN rango_organico ro ON o.id_organico = ro.id_organico
       WHERE o.id_negocio = $1 AND o.estado = 'activo'
         AND o.tipo = $2
+        AND $3 >= ro.inicio AND $3 <= ro.fin
     `;
 
-    const params = [parseInt(negocioId), tipo];
+    const params = [parseInt(negocioId), tipo, grado];
 
     if (term && term.trim()) {
-      queryText += ` AND o.nombre_organico ILIKE $3`;
+      searchQuery += ` AND o.nombre_organico ILIKE $4`;
       params.push(`%${term.trim()}%`);
     }
 
-    queryText += ` ORDER BY o.nombre_organico, ro.inicio`;
+    searchQuery += ` ORDER BY o.nombre_organico, ro.inicio`;
 
-    const result = await query(queryText, params);
+    const result = await query(searchQuery, params);
 
+    // Agrupar resultados por orgánico (solo tendrán un rango cada uno porque filtramos por grado)
     const organicMap = {};
     for (const row of result.rows) {
       if (!organicMap[row.id_organico]) {
