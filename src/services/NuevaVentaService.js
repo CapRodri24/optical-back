@@ -9,7 +9,6 @@ const searchOrganicos = async (term, tipo, grado, userInfo) => {
   try {
     const { negocioId } = userInfo;
 
-    // Primero buscar los orgánicos que coinciden con el tipo y nombre
     let searchQuery = `
       SELECT 
         o.id_organico,
@@ -38,7 +37,6 @@ const searchOrganicos = async (term, tipo, grado, userInfo) => {
 
     const result = await query(searchQuery, params);
 
-    // Agrupar resultados por orgánico (solo tendrán un rango cada uno porque filtramos por grado)
     const organicMap = {};
     for (const row of result.rows) {
       if (!organicMap[row.id_organico]) {
@@ -117,8 +115,6 @@ const searchMateriales = async (tipo, term, userInfo) => {
   try {
     const { negocioId, tiendaId } = userInfo;
 
-    console.log("🔍 searchMateriales - negocioId:", negocioId, "tiendaId:", tiendaId, "tipo:", tipo, "term:", term);
-
     let queryText = `
       SELECT 
         m.id_material as id,
@@ -144,12 +140,7 @@ const searchMateriales = async (tipo, term, userInfo) => {
 
     queryText += ` ORDER BY m.nombre_material LIMIT 20`;
 
-    console.log("📝 searchMateriales query:", queryText);
-    console.log("📦 searchMateriales params:", params);
-
     const result = await query(queryText, params);
-
-    console.log("📊 searchMateriales result rows:", result.rows.length);
 
     return result.rows.map(row => ({
       id: row.id,
@@ -174,8 +165,6 @@ const searchProductos = async (term, userInfo) => {
   try {
     const { negocioId, tiendaId } = userInfo;
 
-    console.log("🔍 searchProductos - negocioId:", negocioId, "tiendaId:", tiendaId, "term:", term);
-
     let queryText = `
       SELECT 
         m.id_material as id,
@@ -197,12 +186,7 @@ const searchProductos = async (term, userInfo) => {
 
     queryText += ` ORDER BY m.nombre_material LIMIT 20`;
 
-    console.log("📝 searchProductos query:", queryText);
-    console.log("📦 searchProductos params:", params);
-
     const result = await query(queryText, params);
-
-    console.log("📊 searchProductos result rows:", result.rows.length);
 
     return result.rows.map(row => ({
       id: row.id,
@@ -217,18 +201,58 @@ const searchProductos = async (term, userInfo) => {
 };
 
 // ============================================
-// REGISTRAR VENTA
+// GENERAR CÓDIGO DE VENTA POR TIENDA Y DÍA
 // ============================================
+
+const generarCodigoVenta = async (tiendaId) => {
+  try {
+    // Obtener el día y mes actual (ej: 2708 para 27 de agosto)
+    const now = new Date();
+    const dia = String(now.getDate()).padStart(2, '0');
+    const mes = String(now.getMonth() + 1).padStart(2, '0');
+    const diaMes = dia + mes;
+    
+    // Buscar el último código de venta para esta tienda en el día actual
+    const result = await query(
+      `
+      SELECT codigo_pedido 
+      FROM pedido 
+      WHERE id_tienda = $1 
+        AND DATE(fecha_pedido) = CURRENT_DATE
+      ORDER BY id_pedido DESC 
+      LIMIT 1
+      `,
+      [parseInt(tiendaId)]
+    );
+    
+    let numero = 1;
+    if (result.rows.length > 0) {
+      const ultimoCodigo = result.rows[0].codigo_pedido;
+      // Extraer el número del código (ej: VTA-2708-5 -> 5)
+      const partes = ultimoCodigo.split('-');
+      if (partes.length === 3) {
+        const ultimoNumero = parseInt(partes[2]);
+        if (!isNaN(ultimoNumero)) {
+          numero = ultimoNumero + 1;
+        }
+      }
+    }
+    
+    return `VTA-${diaMes}-${numero}`;
+  } catch (error) {
+    console.error("Error generando código de venta:", error);
+    // Fallback: usar timestamp
+    return `VTA-${Date.now()}`;
+  }
+};
+
 
 const registrarVenta = async (ventaData, userInfo) => {
   const { negocioId, userId, username } = userInfo;
   const {
     clientId,
     tiendaId,
-    codigoVenta,
     sistemaLente,
-    materialId,
-    frameId,
     total,
     montoPagado,
     subtotal,
@@ -237,14 +261,20 @@ const registrarVenta = async (ventaData, userInfo) => {
     pagoEfectivo,
     pagoQR,
     medidas,
-    lentes,
+    lentes,        // ← Array de lentes (puede tener 1, 2 o más)
     productos
   } = ventaData;
 
   console.log("📝 registrarVenta - tiendaId:", tiendaId, "negocioId:", negocioId);
+  console.log("📝 Cantidad de lentes:", lentes?.length || 0);
+  console.log("📝 Cantidad de productos:", productos?.length || 0);
 
   try {
-    // 1. Obtener o crear la medida para el cliente
+    // 1. Generar código de venta
+    const codigoVenta = await generarCodigoVenta(tiendaId);
+    console.log("📝 Código de venta generado:", codigoVenta);
+
+    // 2. Obtener o crear la medida para el cliente
     let idMedida = null;
     
     const clienteResult = await query(
@@ -304,7 +334,7 @@ const registrarVenta = async (ventaData, userInfo) => {
       );
     }
 
-    // 2. Crear el pedido
+    // 3. Crear UN SOLO pedido para TODOS los lentes y productos
     const estadoPago = montoPagado >= total ? 'Completo' : (montoPagado > 0 ? 'Parcial' : 'Pendiente');
 
     const pedidoResult = await query(
@@ -332,10 +362,32 @@ const registrarVenta = async (ventaData, userInfo) => {
     );
 
     const idPedido = pedidoResult.rows[0].id_pedido;
+    console.log("📝 Pedido creado ID:", idPedido);
 
-    // 3. Si hay lentes, crear el lente y asociarlo a entrega_detalle_lente
+    // 4. Crear UNA SOLA entrega pendiente para el pedido
+    const entregaResult = await query(
+      `
+      INSERT INTO entrega_pendiente (
+        id_pedido,
+        estado_entrega,
+        id_usuario
+      ) VALUES ($1, 'Pendiente', $2)
+      RETURNING id_entrega_pendiente
+      `,
+      [idPedido, parseInt(userId)]
+    );
+
+    const idEntrega = entregaResult.rows[0].id_entrega_pendiente;
+    console.log("📝 Entrega pendiente creada ID:", idEntrega);
+
+    // 5. Registrar TODOS los lentes en la MISMA entrega
     if (lentes && lentes.length > 0) {
-      for (const lente of lentes) {
+      console.log(`📝 Registrando ${lentes.length} lentes...`);
+      
+      for (let i = 0; i < lentes.length; i++) {
+        const lente = lentes[i];
+        console.log(`📝 Lente ${i + 1}:`, lente.tipo);
+        
         let idOrganico = null;
         if (lente.materialId && lente.materialId !== 'Sin material' && lente.materialId !== '') {
           const organicoResult = await query(
@@ -407,6 +459,7 @@ const registrarVenta = async (ventaData, userInfo) => {
           }
         }
 
+        // Crear el lente
         const lenteResult = await query(
           `
           INSERT INTO lente (
@@ -428,20 +481,9 @@ const registrarVenta = async (ventaData, userInfo) => {
         );
 
         const idLente = lenteResult.rows[0].id_lente;
+        console.log(`📝 Lente ${i + 1} creado ID:`, idLente);
 
-        const entregaResult = await query(
-          `
-          INSERT INTO entrega_pendiente (
-            id_pedido,
-            estado_entrega
-          ) VALUES ($1, 'Pendiente')
-          RETURNING id_entrega_pendiente
-          `,
-          [idPedido]
-        );
-
-        const idEntrega = entregaResult.rows[0].id_entrega_pendiente;
-
+        // Asociar el lente a la MISMA entrega pendiente
         await query(
           `
           INSERT INTO entrega_detalle_lente (
@@ -456,33 +498,14 @@ const registrarVenta = async (ventaData, userInfo) => {
             parseFloat(lente.precioTotal || 0)
           ]
         );
+        console.log(`📝 Lente ${i + 1} asociado a entrega ${idEntrega}`);
       }
     }
 
-    // 4. Si hay productos adicionales, agregarlos a entrega_detalle_material
+    // 6. Registrar TODOS los productos adicionales en la MISMA entrega
     if (productos && productos.length > 0) {
-      const entregaResult = await query(
-        `SELECT id_entrega_pendiente FROM entrega_pendiente WHERE id_pedido = $1`,
-        [idPedido]
-      );
-
-      let idEntrega = null;
-      if (entregaResult.rows.length > 0) {
-        idEntrega = entregaResult.rows[0].id_entrega_pendiente;
-      } else {
-        const newEntrega = await query(
-          `
-          INSERT INTO entrega_pendiente (
-            id_pedido,
-            estado_entrega
-          ) VALUES ($1, 'Pendiente')
-          RETURNING id_entrega_pendiente
-          `,
-          [idPedido]
-        );
-        idEntrega = newEntrega.rows[0].id_entrega_pendiente;
-      }
-
+      console.log(`📝 Registrando ${productos.length} productos adicionales...`);
+      
       for (const producto of productos) {
         const materialResult = await query(
           `
@@ -518,11 +541,12 @@ const registrarVenta = async (ventaData, userInfo) => {
               parseFloat(producto.precio || 0) * (producto.cantidad || 1)
             ]
           );
+          console.log(`📝 Producto "${producto.nombre}" asociado a entrega ${idEntrega}`);
         }
       }
     }
 
-    // 5. Registrar el pago en venta
+    // 7. Registrar el pago en venta
     if (montoPagado > 0) {
       let metodoPagoDB = metodoPago;
       let montoEfectivo = 0;
@@ -562,9 +586,11 @@ const registrarVenta = async (ventaData, userInfo) => {
       );
 
       const idVenta = ventaResult.rows[0].id_venta;
+      console.log("📝 Venta registrada ID:", idVenta);
 
       const saldoPendiente = parseFloat(total) - parseFloat(montoPagado);
 
+      // Crear o actualizar pago pendiente
       const pagoPendienteResult = await query(
         `SELECT id_pago_pendiente FROM pago_pendiente WHERE id_pedido = $1`,
         [idPedido]
@@ -581,6 +607,7 @@ const registrarVenta = async (ventaData, userInfo) => {
           `,
           [parseFloat(montoPagado), saldoPendiente, estadoPago, idPedido]
         );
+        console.log("✅ Pago pendiente ACTUALIZADO para pedido:", idPedido);
       } else {
         await query(
           `
@@ -600,6 +627,7 @@ const registrarVenta = async (ventaData, userInfo) => {
             estadoPago
           ]
         );
+        console.log("✅ Pago pendiente CREADO para pedido:", idPedido);
       }
 
       if (montoEfectivo > 0) {
@@ -607,6 +635,8 @@ const registrarVenta = async (ventaData, userInfo) => {
       }
     }
 
+    console.log(`✅ Venta completada con éxito. Pedido: ${codigoVenta}`);
+    
     return {
       idPedido,
       codigoVenta,

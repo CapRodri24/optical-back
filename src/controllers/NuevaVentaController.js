@@ -285,7 +285,12 @@ const registrarVenta = async (req, res) => {
     res.json({
       success: true,
       message: "Venta registrada exitosamente",
-      data: result
+      data: {
+        idPedido: result.idPedido,
+        codigoVenta: result.codigoVenta,
+        estadoPago: result.estadoPago,
+        total: result.total
+      }
     });
   } catch (error) {
     console.error("Error en registrarVenta controller:", error);
