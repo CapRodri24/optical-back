@@ -6,7 +6,6 @@ const { query } = require("../../db");
 // ============================================
 
 const mapEntregaToFrontend = (row, pagos = []) => {
-  // Extraer medidas de la tabla medida
   const medidas = {
     lejosDerecho: {
       esfera: row.lejos_od_esfera || "",
@@ -36,7 +35,6 @@ const mapEntregaToFrontend = (row, pagos = []) => {
     add: row.add_medida || ""
   };
 
-  // Extraer accesorios
   const accesorios = {
     franela: row.franela_nombre || "",
     estuche: row.estuche_nombre || ""
@@ -55,6 +53,7 @@ const mapEntregaToFrontend = (row, pagos = []) => {
     estadoEntrega: row.estado_entrega || "Pendiente",
     estadoPago: row.estado_pago || "Pendiente",
     fechaVenta: row.fecha_pedido ? new Date(row.fecha_pedido).toLocaleDateString('es-BO') : "",
+    fechaVentaRaw: row.fecha_pedido || "",
     fechaEntregaEstimada: row.fecha_entrega_estimada || "",
     vendedor: row.vendedor || "",
     registradoPor: row.usuario_registro || row.registrado_por || "",
@@ -114,20 +113,86 @@ const getPagosByEntregaId = async (idPedido) => {
 };
 
 // ============================================
+// FUNCIÓN PARA APLICAR FILTROS DE FECHA
+// ============================================
+
+const applyDateFilters = (queryText, params, dateFilter) => {
+  if (!dateFilter || dateFilter.type === "all") {
+    return { queryText, params };
+  }
+
+  let filterQuery = "";
+  const { type, specificDate, startDate, endDate } = dateFilter;
+
+  switch (type) {
+    case "today": {
+      filterQuery = ` AND DATE(p.fecha_pedido) = CURRENT_DATE`;
+      break;
+    }
+    case "yesterday": {
+      filterQuery = ` AND DATE(p.fecha_pedido) = CURRENT_DATE - INTERVAL '1 day'`;
+      break;
+    }
+    case "thisWeek": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('week', CURRENT_DATE) 
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days'`;
+      break;
+    }
+    case "lastWeek": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days')
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days') + INTERVAL '6 days'`;
+      break;
+    }
+    case "thisMonth": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('month', CURRENT_DATE)
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`;
+      break;
+    }
+    case "lastMonth": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') + INTERVAL '1 month' - INTERVAL '1 day'`;
+      break;
+    }
+    case "specific": {
+      if (specificDate) {
+        const date = new Date(specificDate);
+        const formattedDate = date.toISOString().split('T')[0];
+        filterQuery = ` AND DATE(p.fecha_pedido) = '${formattedDate}'::date`;
+      }
+      break;
+    }
+    case "range": {
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const formattedStart = start.toISOString().split('T')[0];
+        const formattedEnd = end.toISOString().split('T')[0];
+        filterQuery = ` AND DATE(p.fecha_pedido) >= '${formattedStart}'::date 
+                        AND DATE(p.fecha_pedido) <= '${formattedEnd}'::date`;
+      }
+      break;
+    }
+  }
+
+  return { queryText: queryText + filterQuery, params };
+};
+
+// ============================================
 // GET - OBTENER TODAS LAS ENTREGAS
 // ============================================
 
-const getEntregas = async (soloPendientes, userInfo) => {
+const getEntregas = async (soloPendientes, userInfo, dateFilter = null) => {
   try {
     const { negocioId, tiendaId, role } = userInfo;
 
-    console.log("🔍 getEntregas service - negocioId:", negocioId, "tiendaId:", tiendaId, "role:", role, "soloPendientes:", soloPendientes);
+    console.log("🔍 getEntregas service - negocioId:", negocioId, "tiendaId:", tiendaId, "role:", role);
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
-      return [];
+      return { pendientes: [], entregadas: [] };
     }
 
+    // Query para obtener todas las entregas
     let queryText = `
       SELECT 
         ep.id_entrega_pendiente,
@@ -161,10 +226,7 @@ const getEntregas = async (soloPendientes, userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    if (soloPendientes) {
-      queryText += ` AND ep.estado_entrega = 'Pendiente'`;
-    }
-
+    // Filtrar por tienda
     let tiendaParaFiltrar = null;
 
     if (role === "Vendedor" || role === "Medidor") {
@@ -181,6 +243,10 @@ const getEntregas = async (soloPendientes, userInfo) => {
       paramIndex++;
     }
 
+    // Aplicar filtros de fecha
+    const dateFilterResult = applyDateFilters(queryText, params, dateFilter);
+    queryText = dateFilterResult.queryText;
+
     queryText += ` ORDER BY p.fecha_pedido DESC`;
 
     console.log("📝 Query getEntregas:", queryText);
@@ -189,10 +255,12 @@ const getEntregas = async (soloPendientes, userInfo) => {
     const result = await query(queryText, params);
 
     if (result.rows.length === 0) {
-      return [];
+      return { pendientes: [], entregadas: [] };
     }
 
-    const entregas = [];
+    const pendientes = [];
+    const entregadas = [];
+
     for (const row of result.rows) {
       const pagos = await getPagosByEntregaId(row.id_pedido);
 
@@ -255,13 +323,19 @@ const getEntregas = async (soloPendientes, userInfo) => {
         pagos: pagos
       };
 
-      entregas.push(mapEntregaToFrontend(entregaData, pagos));
+      const entrega = mapEntregaToFrontend(entregaData, pagos);
+
+      if (row.estado_entrega === "Pendiente") {
+        pendientes.push(entrega);
+      } else if (row.estado_entrega === "Entregado") {
+        entregadas.push(entrega);
+      }
     }
 
-    return entregas;
+    return { pendientes, entregadas };
   } catch (error) {
     console.error("Error en getEntregas service:", error);
-    return [];
+    return { pendientes: [], entregadas: [] };
   }
 };
 
@@ -739,7 +813,6 @@ const marcarEntregado = async (id, userInfo) => {
       throw new Error("Esta entrega ya fue marcada como entregada");
     }
 
-    // Actualizar estado_entrega, fecha_entrega con NOW() y id_usuario
     await query(
       `
       UPDATE entrega_pendiente 

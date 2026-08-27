@@ -17,7 +17,15 @@ const getEntregas = async (req, res) => {
     const { pendientes, tiendaId } = req.query;
     const { negocioId } = req.user;
 
-    console.log("🔍 getEntregas - negocioId:", negocioId, "tiendaId:", tiendaId, "pendientes:", pendientes);
+    // Obtener filtros de fecha desde query params
+    const dateFilter = {
+      type: req.query.dateFilterType || "all",
+      specificDate: req.query.specificDate || null,
+      startDate: req.query.startDate || null,
+      endDate: req.query.endDate || null
+    };
+
+    console.log("🔍 getEntregas - negocioId:", negocioId, "tiendaId:", tiendaId, "dateFilter:", dateFilter);
 
     if (!negocioId) {
       return res.status(400).json({
@@ -36,11 +44,11 @@ const getEntregas = async (req, res) => {
 
     const soloPendientes = pendientes === 'true';
 
-    const entregas = await entregasPendientesService.getEntregas(soloPendientes, userInfo);
+    const result = await entregasPendientesService.getEntregas(soloPendientes, userInfo, dateFilter);
 
     res.json({
       success: true,
-      data: entregas
+      data: result
     });
   } catch (error) {
     console.error("Error en getEntregas controller:", error);

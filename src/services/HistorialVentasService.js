@@ -5,10 +5,10 @@ const { query } = require("../../db");
 // FUNCIONES DE UTILIDAD PARA FILTROS DE FECHA
 // ============================================
 
-const buildDateFilter = (dateFilterType, specificDate, startDate, endDate) => {
+const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, startParamIndex = 1) => {
   let dateCondition = "";
   const params = [];
-  let paramIndex = 1;
+  let paramIndex = startParamIndex;
 
   if (!dateFilterType || dateFilterType === 'all') {
     return { dateCondition, params, paramIndex };
@@ -125,7 +125,7 @@ const mapVentaToFrontend = (row) => {
 };
 
 // ============================================
-// GET - OBTENER VENTAS CON FILTROS
+// GET - OBTENER VENTAS CON FILTROS (CORREGIDO - SIN DUPLICADOS)
 // ============================================
 
 const getVentas = async (filtros, userInfo) => {
@@ -144,6 +144,7 @@ const getVentas = async (filtros, userInfo) => {
     const { negocioId, tiendaId } = userInfo;
 
     console.log("🔍 getVentas service - negocioId:", negocioId, "tiendaId:", tiendaId);
+    console.log("🔍 getVentas service - searchTerm:", searchTerm);
     console.log("🔍 getVentas service - filtros:", filtros);
 
     if (!negocioId) {
@@ -151,6 +152,7 @@ const getVentas = async (filtros, userInfo) => {
       return [];
     }
 
+    // Consulta SIMPLIFICADA - sin subconsultas complejas en JOIN
     let queryText = `
       SELECT 
         p.id_pedido,
@@ -164,8 +166,8 @@ const getVentas = async (filtros, userInfo) => {
         per.nombre || ' ' || per.apellido as cliente_nombre,
         COALESCE(v.monto_efectivo, 0) as monto_efectivo,
         COALESCE(v.monto_qr, 0) as monto_qr,
-        u.usuario,
-        v.metodo_pago
+        v.metodo_pago,
+        u.usuario
       FROM pedido p
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       LEFT JOIN venta v ON p.id_pedido = v.id_pedido
@@ -192,37 +194,40 @@ const getVentas = async (filtros, userInfo) => {
     }
 
     // Filtro por búsqueda (backend)
-    if (searchTerm) {
+    if (searchTerm && searchTerm.trim() !== '') {
+      const searchPattern = `%${searchTerm.trim()}%`;
       queryText += ` AND (
         p.codigo_pedido ILIKE $${paramIndex} OR 
         per.nombre ILIKE $${paramIndex} OR 
         per.apellido ILIKE $${paramIndex} OR
         u.usuario ILIKE $${paramIndex}
       )`;
-      params.push(`%${searchTerm}%`);
+      params.push(searchPattern);
       paramIndex++;
     }
 
-    // Filtro por método de pago
+    // Filtro por método de pago - usando EXISTS
     if (selectedMetodoPago && selectedMetodoPago !== 'all') {
       if (selectedMetodoPago === 'efectivo') {
-        queryText += ` AND COALESCE(v.monto_efectivo, 0) > 0`;
+        queryText += ` AND v.monto_efectivo IS NOT NULL AND v.monto_efectivo > 0`;
       } else if (selectedMetodoPago === 'qr') {
-        queryText += ` AND COALESCE(v.monto_qr, 0) > 0`;
+        queryText += ` AND v.monto_qr IS NOT NULL AND v.monto_qr > 0`;
       } else if (selectedMetodoPago === 'mixto') {
-        queryText += ` AND COALESCE(v.monto_efectivo, 0) > 0 AND COALESCE(v.monto_qr, 0) > 0`;
+        queryText += ` AND v.monto_efectivo IS NOT NULL AND v.monto_efectivo > 0 AND v.monto_qr IS NOT NULL AND v.monto_qr > 0`;
       }
     }
 
     // Filtro por fecha
-    const { dateCondition, params: dateParams } = buildDateFilter(
+    const { dateCondition, params: dateParams, paramIndex: newParamIndex } = buildDateFilter(
       dateFilterType,
       specificDate,
       startDate,
-      endDate
+      endDate,
+      paramIndex
     );
     queryText += dateCondition;
     params.push(...dateParams);
+    paramIndex = newParamIndex;
 
     // Ordenamiento
     queryText += ` ORDER BY p.fecha_pedido ${sortDirection === 'desc' ? 'DESC' : 'ASC'}`;
@@ -236,7 +241,21 @@ const getVentas = async (filtros, userInfo) => {
       return [];
     }
 
-    const ventas = result.rows.map(row => mapVentaToFrontend(row));
+    // Filtrar duplicados por id_pedido (mantener el primero de cada pedido)
+    const ventasMap = new Map();
+    for (const row of result.rows) {
+      const id = row.id_pedido;
+      if (!ventasMap.has(id)) {
+        ventasMap.set(id, row);
+      }
+    }
+    const rowsUnicos = Array.from(ventasMap.values());
+
+    if (rowsUnicos.length < result.rows.length) {
+      console.warn(`⚠️ Se eliminaron ${result.rows.length - rowsUnicos.length} filas duplicadas`);
+    }
+
+    const ventas = rowsUnicos.map(row => mapVentaToFrontend(row));
 
     for (let venta of ventas) {
       // Obtener lentes del pedido con sus totales
@@ -294,13 +313,33 @@ const getVentas = async (filtros, userInfo) => {
       }));
     }
 
+    // Sumar montos de todos los pagos (sumar todas las filas de venta)
+    // Pero como tenemos duplicados, necesitamos sumar correctamente
+    for (let venta of ventas) {
+      // Calcular total pagado sumando todas las ventas del pedido
+      const pagosResult = await query(
+        `
+        SELECT 
+          COALESCE(SUM(monto_efectivo), 0) as total_efectivo,
+          COALESCE(SUM(monto_qr), 0) as total_qr
+        FROM venta
+        WHERE id_pedido = $1
+        `,
+        [parseInt(venta.id)]
+      );
+      
+      if (pagosResult.rows.length > 0) {
+        venta.pagoEfectivo = parseFloat(pagosResult.rows[0].total_efectivo || 0);
+        venta.pagoQR = parseFloat(pagosResult.rows[0].total_qr || 0);
+      }
+    }
+
     return ventas;
   } catch (error) {
     console.error("Error en getVentas service:", error);
     throw new Error(error.message || "Error al obtener las ventas");
   }
 };
-
 // ============================================
 // GET - OBTENER VENTA POR ID (DETALLE COMPLETO)
 // ============================================
@@ -335,16 +374,34 @@ const getVentaById = async (id, userInfo) => {
         p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(v.monto_efectivo, 0) as monto_efectivo,
-        COALESCE(v.monto_qr, 0) as monto_qr,
-        u.usuario,
-        v.metodo_pago
+        COALESCE(
+          (SELECT SUM(v2.monto_efectivo) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_efectivo,
+        COALESCE(
+          (SELECT SUM(v2.monto_qr) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_qr,
+        (
+          SELECT v2.metodo_pago 
+          FROM venta v2 
+          WHERE v2.id_pedido = p.id_pedido 
+          ORDER BY v2.fecha_hora DESC 
+          LIMIT 1
+        ) as metodo_pago,
+        u.usuario
       FROM pedido p
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
+      LEFT JOIN usuario u ON u.id_usuario = (
+        SELECT v2.id_usuario 
+        FROM venta v2 
+        WHERE v2.id_pedido = p.id_pedido 
+        ORDER BY v2.fecha_hora DESC 
+        LIMIT 1
+      )
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE p.id_pedido = $1 AND t.id_negocio = $2
+      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
       `,
       [idNum, parseInt(negocioId)]
     );
@@ -421,9 +478,7 @@ const getVentaById = async (id, userInfo) => {
     const lentesResult = await query(lentesQuery, lentesParams);
 
     // 4. Construir items (lentes)
-    let lenteIndex = 0;
     lentesResult.rows.forEach((l) => {
-      lenteIndex++;
       const grupo = `Lente ${l.tipo_lente || 'No especificado'}`;
       const totalLente = parseFloat(l.total_lente || 0);
       
@@ -560,16 +615,34 @@ const getVentasByCodigo = async (codigoVenta, userInfo) => {
         p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(v.monto_efectivo, 0) as monto_efectivo,
-        COALESCE(v.monto_qr, 0) as monto_qr,
-        u.usuario,
-        v.metodo_pago
+        COALESCE(
+          (SELECT SUM(v2.monto_efectivo) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_efectivo,
+        COALESCE(
+          (SELECT SUM(v2.monto_qr) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_qr,
+        (
+          SELECT v2.metodo_pago 
+          FROM venta v2 
+          WHERE v2.id_pedido = p.id_pedido 
+          ORDER BY v2.fecha_hora DESC 
+          LIMIT 1
+        ) as metodo_pago,
+        u.usuario
       FROM pedido p
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
+      LEFT JOIN usuario u ON u.id_usuario = (
+        SELECT v2.id_usuario 
+        FROM venta v2 
+        WHERE v2.id_pedido = p.id_pedido 
+        ORDER BY v2.fecha_hora DESC 
+        LIMIT 1
+      )
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE p.codigo_pedido ILIKE $1 AND t.id_negocio = $2
+      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
     `;
 
     const params = [`%${codigoVenta}%`, parseInt(negocioId)];
@@ -618,16 +691,34 @@ const getVentasByCliente = async (clientName, userInfo) => {
         p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(v.monto_efectivo, 0) as monto_efectivo,
-        COALESCE(v.monto_qr, 0) as monto_qr,
-        u.usuario,
-        v.metodo_pago
+        COALESCE(
+          (SELECT SUM(v2.monto_efectivo) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_efectivo,
+        COALESCE(
+          (SELECT SUM(v2.monto_qr) FROM venta v2 WHERE v2.id_pedido = p.id_pedido),
+          0
+        ) as monto_qr,
+        (
+          SELECT v2.metodo_pago 
+          FROM venta v2 
+          WHERE v2.id_pedido = p.id_pedido 
+          ORDER BY v2.fecha_hora DESC 
+          LIMIT 1
+        ) as metodo_pago,
+        u.usuario
       FROM pedido p
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
+      LEFT JOIN usuario u ON u.id_usuario = (
+        SELECT v2.id_usuario 
+        FROM venta v2 
+        WHERE v2.id_pedido = p.id_pedido 
+        ORDER BY v2.fecha_hora DESC 
+        LIMIT 1
+      )
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE (per.nombre ILIKE $1 OR per.apellido ILIKE $1) AND t.id_negocio = $2
+      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
     `;
 
     const params = [`%${clientName}%`, parseInt(negocioId)];
@@ -725,20 +816,23 @@ const getResumenClientes = async (filtros, userInfo) => {
       paramIndex++;
     }
 
-    if (filtros.searchTerm) {
+    if (filtros.searchTerm && filtros.searchTerm.trim() !== '') {
+      const searchPattern = `%${filtros.searchTerm.trim()}%`;
       queryText += ` AND (per.nombre ILIKE $${paramIndex} OR per.apellido ILIKE $${paramIndex})`;
-      params.push(`%${filtros.searchTerm}%`);
+      params.push(searchPattern);
       paramIndex++;
     }
 
-    const { dateCondition, params: dateParams } = buildDateFilter(
+    const { dateCondition, params: dateParams, paramIndex: newParamIndex } = buildDateFilter(
       filtros.dateFilterType,
       filtros.specificDate,
       filtros.startDate,
-      filtros.endDate
+      filtros.endDate,
+      paramIndex
     );
     queryText += dateCondition;
     params.push(...dateParams);
+    paramIndex = newParamIndex;
 
     queryText += ` GROUP BY per.id_persona, per.nombre, per.apellido ORDER BY total_general DESC`;
 
@@ -811,7 +905,6 @@ const getEstadisticasRapidas = async (tiendaIdFiltro, userInfo) => {
     const params = [parseInt(negocioId), startOfMonth.toISOString()];
     let paramIndex = 3;
 
-    // Si el usuario tiene una tienda específica, filtrar por ella
     const tiendaEfectiva = tiendaIdFiltro && tiendaIdFiltro !== 'todas' ? tiendaIdFiltro : tiendaId;
     if (tiendaEfectiva && tiendaEfectiva !== 'todas') {
       queryText += ` AND p.id_tienda = $${paramIndex}`;

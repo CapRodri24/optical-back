@@ -7,7 +7,6 @@ const historialVentasService = require("../services/HistorialVentasService");
 
 const getVentas = async (req, res) => {
   try {
-    // Verificar autenticación (req.user es agregado por el middleware)
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -24,13 +23,13 @@ const getVentas = async (req, res) => {
       searchTerm,
       tiendaId,
       sortDirection = "desc",
-      negocioId  // <--- RECIBIR DEL FRONTEND
+      negocioId
     } = req.query;
 
     console.log("🔍 getVentas - usuario:", req.user.usuario);
     console.log("🔍 getVentas - negocioId recibido:", negocioId);
+    console.log("🔍 getVentas - searchTerm recibido:", searchTerm);
 
-    // Validar que negocioId exista
     if (!negocioId) {
       return res.status(400).json({
         success: false,
@@ -45,9 +44,6 @@ const getVentas = async (req, res) => {
       role: req.user.rol_nombre,
       username: req.user.usuario
     };
-
-    console.log("🔍 getVentas - userInfo:", userInfo);
-    console.log("🔍 getVentas - filtros:", { dateFilterType, searchTerm, tiendaId });
 
     const ventas = await historialVentasService.getVentas({
       dateFilterType,

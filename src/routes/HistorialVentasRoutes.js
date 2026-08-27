@@ -37,15 +37,19 @@ router.get("/tipos-filtro-fecha", historialVentasController.getTiposFiltroFecha)
 // ============================================
 
 // Obtener todas las ventas con filtros
+// Query params: dateFilterType, specificDate, startDate, endDate, selectedMetodoPago, searchTerm, tiendaId, sortDirection, negocioId
 router.get("/", historialVentasController.getVentas);
 
 // Obtener venta por ID
+// Query params: negocioId, tiendaId
 router.get("/:id", historialVentasController.getVentaById);
 
 // Obtener ventas por código
+// Query params: negocioId, tiendaId
 router.get("/codigo/:codigoVenta", historialVentasController.getVentasByCodigo);
 
 // Obtener ventas por cliente
+// Query params: negocioId, tiendaId
 router.get("/cliente/:clientName", historialVentasController.getVentasByCliente);
 
 module.exports = router;

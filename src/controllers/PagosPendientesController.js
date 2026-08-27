@@ -17,7 +17,15 @@ const getEntregasConSaldo = async (req, res) => {
     const { tiendaId } = req.query;
     const { negocioId } = req.user;
 
-    console.log("🔍 getEntregasConSaldo - negocioId:", negocioId, "tiendaId:", tiendaId);
+    // Obtener filtros de fecha desde query params
+    const dateFilter = {
+      type: req.query.dateFilterType || "today",
+      specificDate: req.query.specificDate || null,
+      startDate: req.query.startDate || null,
+      endDate: req.query.endDate || null
+    };
+
+    console.log("🔍 getEntregasConSaldo - negocioId:", negocioId, "tiendaId:", tiendaId, "dateFilter:", dateFilter);
 
     if (!negocioId) {
       return res.status(400).json({
@@ -34,11 +42,11 @@ const getEntregasConSaldo = async (req, res) => {
       username: req.user.usuario
     };
 
-    const entregas = await pagosPendientesService.getEntregasConSaldo(userInfo);
+    const result = await pagosPendientesService.getEntregasConSaldo(userInfo, dateFilter);
 
     res.json({
       success: true,
-      data: entregas
+      data: result
     });
   } catch (error) {
     console.error("Error en getEntregasConSaldo controller:", error);
@@ -65,7 +73,15 @@ const getEntregas = async (req, res) => {
     const { tiendaId } = req.query;
     const { negocioId } = req.user;
 
-    console.log("🔍 getEntregas - negocioId:", negocioId, "tiendaId:", tiendaId);
+    // Obtener filtros de fecha desde query params
+    const dateFilter = {
+      type: req.query.dateFilterType || "today",
+      specificDate: req.query.specificDate || null,
+      startDate: req.query.startDate || null,
+      endDate: req.query.endDate || null
+    };
+
+    console.log("🔍 getEntregas - negocioId:", negocioId, "tiendaId:", tiendaId, "dateFilter:", dateFilter);
 
     if (!negocioId) {
       return res.status(400).json({
@@ -82,11 +98,11 @@ const getEntregas = async (req, res) => {
       username: req.user.usuario
     };
 
-    const entregas = await pagosPendientesService.getEntregas(userInfo);
+    const result = await pagosPendientesService.getEntregas(userInfo, dateFilter);
 
     res.json({
       success: true,
-      data: entregas
+      data: result
     });
   } catch (error) {
     console.error("Error en getEntregas controller:", error);

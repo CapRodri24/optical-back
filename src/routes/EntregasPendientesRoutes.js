@@ -22,6 +22,7 @@ router.get("/estadisticas", entregasPendientesController.getEstadisticasEntregas
 // ============================================
 
 // Obtener todas las entregas
+// Query params: pendientes (true/false), tiendaId, dateFilterType, specificDate, startDate, endDate
 router.get("/", entregasPendientesController.getEntregas);
 
 // Obtener una entrega por ID

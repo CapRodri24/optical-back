@@ -22,9 +22,11 @@ router.get("/estadisticas", pagosPendientesController.getEstadisticasPagos);
 // ============================================
 
 // Obtener todas las entregas con saldo pendiente
+// Query params: tiendaId, dateFilterType, specificDate, startDate, endDate
 router.get("/con-saldo", pagosPendientesController.getEntregasConSaldo);
 
 // Obtener todas las entregas
+// Query params: tiendaId, dateFilterType, specificDate, startDate, endDate
 router.get("/", pagosPendientesController.getEntregas);
 
 // Obtener una entrega por ID

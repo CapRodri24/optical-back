@@ -6,7 +6,6 @@ const { query } = require("../../db");
 // ============================================
 
 const mapEntregaToFrontend = (row, pagos = []) => {
-  // Extraer medidas de la tabla medida
   const medidas = {
     lejosDerecho: {
       esfera: row.lejos_od_esfera || "",
@@ -36,7 +35,6 @@ const mapEntregaToFrontend = (row, pagos = []) => {
     add: row.add_medida || ""
   };
 
-  // Extraer accesorios
   const accesorios = {
     franela: row.franela_nombre || "",
     estuche: row.estuche_nombre || ""
@@ -55,6 +53,7 @@ const mapEntregaToFrontend = (row, pagos = []) => {
     estadoEntrega: row.estado_entrega || "Pendiente",
     estadoPago: row.estado_pago || "Pendiente",
     fechaVenta: row.fecha_pedido ? new Date(row.fecha_pedido).toLocaleDateString('es-BO') : "",
+    fechaVentaRaw: row.fecha_pedido || "",
     fechaEntregaEstimada: row.fecha_entrega_estimada || "",
     vendedor: row.vendedor || "",
     registradoPor: row.registrado_por || "",
@@ -98,7 +97,6 @@ const getPagosByEntregaId = async (idPedido) => {
         registradoPor: row.registrado_por || "Sistema"
       };
 
-      // Si es mixto, agregar detalle
       if (row.metodo === "Mixto") {
         pago.detalleMixto = {
           qr: parseFloat(row.monto_qr || 0),
@@ -115,6 +113,71 @@ const getPagosByEntregaId = async (idPedido) => {
 };
 
 // ============================================
+// FUNCIÓN PARA APLICAR FILTROS DE FECHA
+// ============================================
+
+const applyDateFilters = (queryText, params, dateFilter) => {
+  if (!dateFilter || dateFilter.type === "all") {
+    return { queryText, params };
+  }
+
+  let filterQuery = "";
+  const { type, specificDate, startDate, endDate } = dateFilter;
+
+  switch (type) {
+    case "today": {
+      filterQuery = ` AND DATE(p.fecha_pedido) = CURRENT_DATE`;
+      break;
+    }
+    case "yesterday": {
+      filterQuery = ` AND DATE(p.fecha_pedido) = CURRENT_DATE - INTERVAL '1 day'`;
+      break;
+    }
+    case "thisWeek": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('week', CURRENT_DATE) 
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '6 days'`;
+      break;
+    }
+    case "lastWeek": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days')
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days') + INTERVAL '6 days'`;
+      break;
+    }
+    case "thisMonth": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('month', CURRENT_DATE)
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'`;
+      break;
+    }
+    case "lastMonth": {
+      filterQuery = ` AND DATE(p.fecha_pedido) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                      AND DATE(p.fecha_pedido) <= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') + INTERVAL '1 month' - INTERVAL '1 day'`;
+      break;
+    }
+    case "specific": {
+      if (specificDate) {
+        const date = new Date(specificDate);
+        const formattedDate = date.toISOString().split('T')[0];
+        filterQuery = ` AND DATE(p.fecha_pedido) = '${formattedDate}'::date`;
+      }
+      break;
+    }
+    case "range": {
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const formattedStart = start.toISOString().split('T')[0];
+        const formattedEnd = end.toISOString().split('T')[0];
+        filterQuery = ` AND DATE(p.fecha_pedido) >= '${formattedStart}'::date 
+                        AND DATE(p.fecha_pedido) <= '${formattedEnd}'::date`;
+      }
+      break;
+    }
+  }
+
+  return { queryText: queryText + filterQuery, params };
+};
+
+// ============================================
 // FUNCIÓN PARA REGISTRAR MOVIMIENTO EN CAJA (SOLO EFECTIVO)
 // ============================================
 
@@ -125,7 +188,6 @@ const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta)
       return;
     }
 
-    // 1. Verificar que la caja existe y está abierta para la tienda
     const cajaResult = await query(
       `
       SELECT id_caja, total, estado 
@@ -141,7 +203,6 @@ const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta)
 
     const caja = cajaResult.rows[0];
 
-    // 2. Verificar que la caja esté abierta
     if (caja.estado !== 'abierta') {
       throw new Error(`La caja de la tienda está cerrada. No se pueden registrar pagos en efectivo.`);
     }
@@ -150,7 +211,6 @@ const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta)
     const montoAnterior = parseFloat(caja.total || 0);
     const montoNuevo = montoAnterior + montoEfectivo;
 
-    // 3. Actualizar el total de la caja
     await query(
       `
       UPDATE caja 
@@ -160,7 +220,6 @@ const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta)
       [montoNuevo, idCaja]
     );
 
-    // 4. Registrar la transacción en caja
     await query(
       `
       INSERT INTO transaccion_caja (
@@ -194,10 +253,10 @@ const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta)
 };
 
 // ============================================
-// GET - OBTENER ENTREGAS CON SALDO PENDIENTE
+// GET - OBTENER ENTREGAS CON SALDO PENDIENTE (CON FILTROS DE FECHA)
 // ============================================
 
-const getEntregasConSaldo = async (userInfo) => {
+const getEntregasConSaldo = async (userInfo, dateFilter = null) => {
   try {
     const { negocioId, tiendaId, role } = userInfo;
 
@@ -205,7 +264,7 @@ const getEntregasConSaldo = async (userInfo) => {
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
-      return [];
+      return { conSaldo: [], completos: [] };
     }
 
     let queryText = `
@@ -234,14 +293,11 @@ const getEntregasConSaldo = async (userInfo) => {
       INNER JOIN persona per ON p.id_cliente = per.id_persona
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE t.id_negocio = $1
-        AND p.estado_pago != 'Completo'
-        AND p.estado_pago != 'Pendiente'
     `;
 
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
-    // DETERMINAR QUÉ TIENDA FILTRAR
     let tiendaParaFiltrar = null;
 
     if (role === "Vendedor" || role === "Medidor") {
@@ -257,6 +313,10 @@ const getEntregasConSaldo = async (userInfo) => {
       params.push(parseInt(tiendaParaFiltrar));
       paramIndex++;
     }
+
+    // Aplicar filtros de fecha
+    const dateFilterResult = applyDateFilters(queryText, params, dateFilter);
+    queryText = dateFilterResult.queryText;
 
     queryText += ` ORDER BY p.fecha_pedido DESC`;
 
@@ -266,10 +326,12 @@ const getEntregasConSaldo = async (userInfo) => {
     const result = await query(queryText, params);
 
     if (result.rows.length === 0) {
-      return [];
+      return { conSaldo: [], completos: [] };
     }
 
-    const entregas = [];
+    const conSaldo = [];
+    const completos = [];
+
     for (const row of result.rows) {
       const pagos = await getPagosByEntregaId(row.id_pedido);
 
@@ -332,21 +394,27 @@ const getEntregasConSaldo = async (userInfo) => {
         pagos: pagos
       };
 
-      entregas.push(mapEntregaToFrontend(entregaData, pagos));
+      const entrega = mapEntregaToFrontend(entregaData, pagos);
+
+      if (row.estado_pago === "Completo") {
+        completos.push(entrega);
+      } else {
+        conSaldo.push(entrega);
+      }
     }
 
-    return entregas;
+    return { conSaldo, completos };
   } catch (error) {
     console.error("Error en getEntregasConSaldo service:", error);
-    return [];
+    return { conSaldo: [], completos: [] };
   }
 };
 
 // ============================================
-// GET - OBTENER TODAS LAS ENTREGAS
+// GET - OBTENER TODAS LAS ENTREGAS (CON FILTROS DE FECHA)
 // ============================================
 
-const getEntregas = async (userInfo) => {
+const getEntregas = async (userInfo, dateFilter = null) => {
   try {
     const { negocioId, tiendaId, role } = userInfo;
 
@@ -354,7 +422,7 @@ const getEntregas = async (userInfo) => {
 
     if (!negocioId) {
       console.warn("⚠️ negocioId no proporcionado");
-      return [];
+      return { conSaldo: [], completos: [] };
     }
 
     let queryText = `
@@ -404,6 +472,10 @@ const getEntregas = async (userInfo) => {
       paramIndex++;
     }
 
+    // Aplicar filtros de fecha
+    const dateFilterResult = applyDateFilters(queryText, params, dateFilter);
+    queryText = dateFilterResult.queryText;
+
     queryText += ` ORDER BY p.fecha_pedido DESC`;
 
     console.log("📝 Query getEntregas:", queryText);
@@ -412,10 +484,12 @@ const getEntregas = async (userInfo) => {
     const result = await query(queryText, params);
 
     if (result.rows.length === 0) {
-      return [];
+      return { conSaldo: [], completos: [] };
     }
 
-    const entregas = [];
+    const conSaldo = [];
+    const completos = [];
+
     for (const row of result.rows) {
       const pagos = await getPagosByEntregaId(row.id_pedido);
 
@@ -478,13 +552,19 @@ const getEntregas = async (userInfo) => {
         pagos: pagos
       };
 
-      entregas.push(mapEntregaToFrontend(entregaData, pagos));
+      const entrega = mapEntregaToFrontend(entregaData, pagos);
+
+      if (row.estado_pago === "Completo") {
+        completos.push(entrega);
+      } else {
+        conSaldo.push(entrega);
+      }
     }
 
-    return entregas;
+    return { conSaldo, completos };
   } catch (error) {
     console.error("Error en getEntregas service:", error);
-    return [];
+    return { conSaldo: [], completos: [] };
   }
 };
 
@@ -717,7 +797,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       throw new Error("ID de entrega inválido");
     }
 
-    // 1. Obtener el pedido asociado a esta entrega
     const entregaResult = await query(
       `
       SELECT 
@@ -743,7 +822,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
     const totalPedido = parseFloat(pedido.total || 0);
     const tiendaId = pedido.id_tienda;
 
-    // 2. Calcular el monto pagado actual
     const pagosActualesResult = await query(
       `
       SELECT COALESCE(SUM(monto_pagado), 0) as total_pagado
@@ -760,13 +838,11 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       throw new Error(`El monto total pagado (${nuevoMontoPagado.toFixed(2)}) excede el total del pedido (${totalPedido.toFixed(2)})`);
     }
 
-    // 3. Determinar el nuevo estado de pago
     let nuevoEstadoPago = "Parcial";
     if (nuevoMontoPagado >= totalPedido) {
       nuevoEstadoPago = "Completo";
     }
 
-    // 4. Calcular montos para el registro de venta
     let montoEfectivo = 0;
     let montoQR = 0;
     let metodoPago = metodo;
@@ -781,7 +857,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       montoQR = monto;
     }
 
-    // 5. Registrar la venta (pago)
     const ventaResult = await query(
       `
       INSERT INTO venta (
@@ -808,7 +883,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
 
     const idVenta = ventaResult.rows[0].id_venta;
 
-    // 6. Actualizar el estado del pedido
     await query(
       `
       UPDATE pedido 
@@ -818,7 +892,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
       [nuevoEstadoPago, pedido.id_pedido]
     );
 
-    // 7. Actualizar pago_pendiente
     const saldoPendiente = totalPedido - nuevoMontoPagado;
 
     const pagoPendienteResult = await query(
@@ -841,7 +914,6 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
         `,
         [nuevoMontoPagado, saldoPendiente, nuevoEstadoPago, pedido.id_pedido]
       );
-      console.log("✅ Pago pendiente ACTUALIZADO para pedido:", pedido.id_pedido);
     } else {
       await query(
         `
@@ -855,18 +927,14 @@ const registrarPago = async (id, pagoData, registradoPor, userInfo) => {
         `,
         [pedido.id_pedido, totalPedido, nuevoMontoPagado, saldoPendiente, nuevoEstadoPago]
       );
-      console.log("✅ Pago pendiente CREADO para pedido:", pedido.id_pedido);
     }
 
-    // 8. REGISTRAR MOVIMIENTO EN CAJA (SOLO PARA EFECTIVO)
-    // Si hay monto en efectivo (pago en efectivo o parte efectivo de mixto)
     if (montoEfectivo > 0) {
       await registrarMovimientoCaja(tiendaId, userId, montoEfectivo, idVenta);
     } else {
       console.log("ℹ️ No se registra movimiento en caja (pago con QR o sin efectivo)");
     }
 
-    // 9. Obtener la entrega actualizada
     const entregaActualizada = await getEntregaById(id, userInfo);
 
     return entregaActualizada;
