@@ -206,13 +206,11 @@ const searchProductos = async (term, userInfo) => {
 
 const generarCodigoVenta = async (tiendaId) => {
   try {
-    // Obtener el día y mes actual (ej: 2708 para 27 de agosto)
     const now = new Date();
     const dia = String(now.getDate()).padStart(2, '0');
     const mes = String(now.getMonth() + 1).padStart(2, '0');
     const diaMes = dia + mes;
     
-    // Buscar el último código de venta para esta tienda en el día actual
     const result = await query(
       `
       SELECT codigo_pedido 
@@ -228,7 +226,6 @@ const generarCodigoVenta = async (tiendaId) => {
     let numero = 1;
     if (result.rows.length > 0) {
       const ultimoCodigo = result.rows[0].codigo_pedido;
-      // Extraer el número del código (ej: VTA-2708-5 -> 5)
       const partes = ultimoCodigo.split('-');
       if (partes.length === 3) {
         const ultimoNumero = parseInt(partes[2]);
@@ -241,11 +238,137 @@ const generarCodigoVenta = async (tiendaId) => {
     return `VTA-${diaMes}-${numero}`;
   } catch (error) {
     console.error("Error generando código de venta:", error);
-    // Fallback: usar timestamp
     return `VTA-${Date.now()}`;
   }
 };
 
+// ============================================
+// DESCONTAR STOCK DE MATERIALES
+// ============================================
+
+const descontarStockMaterial = async (idMaterial, tiendaId, cantidad) => {
+  try {
+    // Verificar stock actual
+    const stockResult = await query(
+      `
+      SELECT stock, id_material_tienda
+      FROM material_tienda
+      WHERE id_material = $1 AND id_tienda = $2
+      `,
+      [parseInt(idMaterial), parseInt(tiendaId)]
+    );
+
+    if (stockResult.rows.length === 0) {
+      console.warn(`⚠️ Material ${idMaterial} no encontrado en tienda ${tiendaId}`);
+      return false;
+    }
+
+    const currentStock = parseInt(stockResult.rows[0].stock) || 0;
+    const idMaterialTienda = stockResult.rows[0].id_material_tienda;
+
+    if (currentStock < cantidad) {
+      console.warn(`⚠️ Stock insuficiente para material ${idMaterial}: ${currentStock} < ${cantidad}`);
+      return false;
+    }
+
+    const newStock = currentStock - cantidad;
+
+    // Actualizar stock
+    await query(
+      `
+      UPDATE material_tienda
+      SET stock = $1
+      WHERE id_material_tienda = $2
+      `,
+      [newStock, idMaterialTienda]
+    );
+
+    console.log(`✅ Stock descontado: Material ${idMaterial}, Tienda ${tiendaId}, ${cantidad} unidades (${currentStock} → ${newStock})`);
+    return true;
+  } catch (error) {
+    console.error("Error descontando stock:", error);
+    throw new Error(`Error al descontar stock del material: ${error.message}`);
+  }
+};
+
+// ============================================
+// REGISTRAR MOVIMIENTO EN CAJA
+// ============================================
+
+const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta) => {
+  try {
+    if (montoEfectivo <= 0) {
+      console.log("ℹ️ No hay monto en efectivo para registrar en caja");
+      return;
+    }
+
+    const cajaResult = await query(
+      `
+      SELECT id_caja, total, estado 
+      FROM caja 
+      WHERE id_tienda = $1
+      `,
+      [parseInt(tiendaId)]
+    );
+
+    if (cajaResult.rows.length === 0) {
+      throw new Error(`No se encontró caja para la tienda con ID ${tiendaId}`);
+    }
+
+    const caja = cajaResult.rows[0];
+
+    if (caja.estado !== 'abierta') {
+      throw new Error(`La caja de la tienda está cerrada. No se pueden registrar pagos en efectivo.`);
+    }
+
+    const idCaja = caja.id_caja;
+    const montoAnterior = parseFloat(caja.total || 0);
+    const montoNuevo = montoAnterior + montoEfectivo;
+
+    await query(
+      `
+      UPDATE caja 
+      SET total = $1 
+      WHERE id_caja = $2
+      `,
+      [montoNuevo, idCaja]
+    );
+
+    await query(
+      `
+      INSERT INTO transaccion_caja (
+        id_caja,
+        id_usuario,
+        monto_nuevo,
+        monto_anterior,
+        monto,
+        tipo_movimiento,
+        descripcion,
+        id_venta
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        idCaja,
+        parseInt(userId),
+        montoNuevo,
+        montoAnterior,
+        montoEfectivo,
+        'ingreso',
+        `Pago en efectivo registrado en venta`,
+        idVenta
+      ]
+    );
+
+    console.log(`✅ Movimiento de caja registrado: +Bs ${montoEfectivo} (Caja ID: ${idCaja}, Tienda: ${tiendaId})`);
+  } catch (error) {
+    console.error("Error registrando movimiento en caja:", error);
+    throw new Error(error.message || "Error al registrar el movimiento en caja");
+  }
+};
+
+// ============================================
+// REGISTRAR VENTA CON DESCUENTO DE STOCK
+// ============================================
 
 const registrarVenta = async (ventaData, userInfo) => {
   const { negocioId, userId, username } = userInfo;
@@ -261,7 +384,7 @@ const registrarVenta = async (ventaData, userInfo) => {
     pagoEfectivo,
     pagoQR,
     medidas,
-    lentes,        // ← Array de lentes (puede tener 1, 2 o más)
+    lentes,
     productos
   } = ventaData;
 
@@ -380,7 +503,7 @@ const registrarVenta = async (ventaData, userInfo) => {
     const idEntrega = entregaResult.rows[0].id_entrega_pendiente;
     console.log("📝 Entrega pendiente creada ID:", idEntrega);
 
-    // 5. Registrar TODOS los lentes en la MISMA entrega
+    // 5. Registrar TODOS los lentes en la MISMA entrega Y DESCONTAR STOCK
     if (lentes && lentes.length > 0) {
       console.log(`📝 Registrando ${lentes.length} lentes...`);
       
@@ -418,6 +541,8 @@ const registrarVenta = async (ventaData, userInfo) => {
           );
           if (monturaResult.rows.length > 0) {
             idMontura = monturaResult.rows[0].id_material;
+            // Descontar stock de la montura (1 unidad)
+            await descontarStockMaterial(idMontura, tiendaId, 1);
           }
         }
 
@@ -437,6 +562,8 @@ const registrarVenta = async (ventaData, userInfo) => {
           );
           if (franelaResult.rows.length > 0) {
             idFranela = franelaResult.rows[0].id_material;
+            // Descontar stock de la franela (1 unidad)
+            await descontarStockMaterial(idFranela, tiendaId, 1);
           }
         }
 
@@ -456,6 +583,8 @@ const registrarVenta = async (ventaData, userInfo) => {
           );
           if (estucheResult.rows.length > 0) {
             idEstuche = estucheResult.rows[0].id_material;
+            // Descontar stock del estuche (1 unidad)
+            await descontarStockMaterial(idEstuche, tiendaId, 1);
           }
         }
 
@@ -502,14 +631,15 @@ const registrarVenta = async (ventaData, userInfo) => {
       }
     }
 
-    // 6. Registrar TODOS los productos adicionales en la MISMA entrega
+    // 6. Registrar TODOS los productos adicionales en la MISMA entrega Y DESCONTAR STOCK
     if (productos && productos.length > 0) {
       console.log(`📝 Registrando ${productos.length} productos adicionales...`);
       
       for (const producto of productos) {
+        // Buscar el material por nombre
         const materialResult = await query(
           `
-          SELECT m.id_material 
+          SELECT m.id_material, mt.stock
           FROM material m
           INNER JOIN material_tienda mt ON m.id_material = mt.id_material AND mt.id_tienda = $3
           WHERE m.nombre_material ILIKE $1 
@@ -522,6 +652,9 @@ const registrarVenta = async (ventaData, userInfo) => {
         let idMaterial = null;
         if (materialResult.rows.length > 0) {
           idMaterial = materialResult.rows[0].id_material;
+          const cantidad = producto.cantidad || 1;
+          // Descontar stock del producto
+          await descontarStockMaterial(idMaterial, tiendaId, cantidad);
         }
 
         if (idMaterial) {
@@ -646,81 +779,6 @@ const registrarVenta = async (ventaData, userInfo) => {
   } catch (error) {
     console.error("Error en registrarVenta service:", error);
     throw new Error(error.message || "Error al registrar la venta");
-  }
-};
-
-// ============================================
-// REGISTRAR MOVIMIENTO EN CAJA
-// ============================================
-
-const registrarMovimientoCaja = async (tiendaId, userId, montoEfectivo, idVenta) => {
-  try {
-    if (montoEfectivo <= 0) {
-      console.log("ℹ️ No hay monto en efectivo para registrar en caja");
-      return;
-    }
-
-    const cajaResult = await query(
-      `
-      SELECT id_caja, total, estado 
-      FROM caja 
-      WHERE id_tienda = $1
-      `,
-      [parseInt(tiendaId)]
-    );
-
-    if (cajaResult.rows.length === 0) {
-      throw new Error(`No se encontró caja para la tienda con ID ${tiendaId}`);
-    }
-
-    const caja = cajaResult.rows[0];
-
-    if (caja.estado !== 'abierta') {
-      throw new Error(`La caja de la tienda está cerrada. No se pueden registrar pagos en efectivo.`);
-    }
-
-    const idCaja = caja.id_caja;
-    const montoAnterior = parseFloat(caja.total || 0);
-    const montoNuevo = montoAnterior + montoEfectivo;
-
-    await query(
-      `
-      UPDATE caja 
-      SET total = $1 
-      WHERE id_caja = $2
-      `,
-      [montoNuevo, idCaja]
-    );
-
-    await query(
-      `
-      INSERT INTO transaccion_caja (
-        id_caja,
-        id_usuario,
-        monto_nuevo,
-        monto_anterior,
-        monto,
-        tipo_movimiento,
-        descripcion,
-        id_venta
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `,
-      [
-        idCaja,
-        parseInt(userId),
-        montoNuevo,
-        montoAnterior,
-        montoEfectivo,
-        'ingreso',
-        `Pago en efectivo registrado en venta`,
-        idVenta
-      ]
-    );
-
-    console.log(`✅ Movimiento de caja registrado: +Bs ${montoEfectivo} (Caja ID: ${idCaja}, Tienda: ${tiendaId})`);
-  } catch (error) {
-    console.error("Error registrando movimiento en caja:", error);
-    throw new Error(error.message || "Error al registrar el movimiento en caja");
   }
 };
 

@@ -259,18 +259,66 @@ const registrarVenta = async (req, res) => {
       });
     }
 
-    if (!ventaData.clientId) {
-      return res.status(400).json({
-        success: false,
-        message: "ID de cliente requerido"
-      });
-    }
-
     if (!ventaData.tiendaId) {
       return res.status(400).json({
         success: false,
         message: "ID de tienda requerido"
       });
+    }
+
+    // Validar que haya al menos un producto o lente
+    const tieneLentes = ventaData.lentes && ventaData.lentes.length > 0;
+    const tieneProductos = ventaData.productos && ventaData.productos.length > 0;
+
+    if (!tieneLentes && !tieneProductos) {
+      return res.status(400).json({
+        success: false,
+        message: "Debe agregar al menos un lente o un producto"
+      });
+    }
+
+    // Si tiene lentes, es obligatorio el cliente
+    if (tieneLentes && !ventaData.clientId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de cliente requerido para ventas con lentes"
+      });
+    }
+
+    // Si solo tiene productos, el cliente es opcional
+    // Si no tiene cliente, creamos un cliente genérico "Venta sin cliente"
+    if (!ventaData.clientId && tieneProductos && !tieneLentes) {
+      // Crear un cliente genérico para ventas sin cliente
+      const { query } = require("../../db");
+      
+      // Buscar si ya existe el cliente genérico
+      const clienteGenericoResult = await query(
+        `
+        SELECT id_persona FROM persona 
+        WHERE nombre = 'Venta' AND apellido = 'Sin Cliente' 
+        AND id_tipo_cliente IS NULL
+        LIMIT 1
+        `,
+        []
+      );
+
+      let clienteId;
+      if (clienteGenericoResult.rows.length > 0) {
+        clienteId = clienteGenericoResult.rows[0].id_persona;
+      } else {
+        // Crear cliente genérico
+        const newClienteResult = await query(
+          `
+          INSERT INTO persona (nombre, apellido, celular, estado)
+          VALUES ('Venta', 'Sin Cliente', '0', 'activo')
+          RETURNING id_persona
+          `,
+          []
+        );
+        clienteId = newClienteResult.rows[0].id_persona;
+      }
+      
+      ventaData.clientId = clienteId;
     }
 
     const userInfo = {
@@ -349,7 +397,7 @@ const getVentasByClient = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error al obtener las ventas del cliente"
-    });
+    }); 
   }
 };
 
