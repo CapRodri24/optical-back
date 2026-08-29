@@ -5,7 +5,7 @@ const dashboardController = require("../controllers/DashboardController");
 const { authenticate } = require("../middleware/loginmiddleware");
 
 // Obtener estadísticas del dashboard (consolidadas)
-router.get("/stats", authenticate, dashboardController.getDashboardStats);
+router.get("/stats", dashboardController.getDashboardStats);
 
 // Obtener variación de ventas (consolidada)
 router.get("/sales-variation", authenticate, dashboardController.getSalesVariation);
