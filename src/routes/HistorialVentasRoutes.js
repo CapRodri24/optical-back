@@ -40,7 +40,7 @@ router.get("/tipos-filtro-fecha", historialVentasController.getTiposFiltroFecha)
 // Query params: dateFilterType, specificDate, startDate, endDate, selectedMetodoPago, searchTerm, tiendaId, sortDirection, negocioId
 router.get("/", historialVentasController.getVentas);
 
-// Obtener venta por ID
+// Obtener venta por ID 
 // Query params: negocioId, tiendaId
 router.get("/:id", historialVentasController.getVentaById);
 
@@ -51,5 +51,10 @@ router.get("/codigo/:codigoVenta", historialVentasController.getVentasByCodigo);
 // Obtener ventas por cliente
 // Query params: negocioId, tiendaId
 router.get("/cliente/:clientName", historialVentasController.getVentasByCliente);
+
+// ============================================
+// RUTA PARA ANULAR VENTA (DELETE)
+// ============================================
+router.delete("/:id/anular", historialVentasController.anularVenta);
 
 module.exports = router;

@@ -515,6 +515,67 @@ const getTiposFiltroFecha = async (req, res) => {
   }
 };
 
+// ============================================
+// DELETE - ANULAR VENTA
+// ============================================
+
+const anularVenta = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no autenticado"
+      });
+    }
+
+    if (req.user.rol_nombre !== 'Administrador' && req.user.rol_nombre !== 'Spider Admin') {
+      return res.status(403).json({
+        success: false,
+        message: "No tienes permisos para anular ventas. Solo administradores."
+      });
+    }
+
+    const { id } = req.params;
+    const { negocioId, tiendaId } = req.query;
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de venta inválido"
+      });
+    }
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "Negocio ID es requerido"
+      });
+    }
+
+    const userInfo = {
+      negocioId: parseInt(negocioId),
+      tiendaId: tiendaId || 'todas',
+      userId: req.user.id_usuario,
+      role: req.user.rol_nombre,
+      username: req.user.usuario
+    };
+
+    const result = await historialVentasService.anularVenta(id, userInfo);
+
+    res.json({
+      success: true,
+      message: "Venta anulada correctamente",
+      data: result
+    });
+  } catch (error) {
+    console.error("Error en anularVenta controller:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error al anular la venta"
+    });
+  }
+};
+
 module.exports = {
   getVentas,
   getVentaById,
@@ -525,5 +586,6 @@ module.exports = {
   getEstadisticasRapidas,
   getTiendas,
   getMetodosPago,
-  getTiposFiltroFecha
+  getTiposFiltroFecha,
+  anularVenta
 };
