@@ -6,6 +6,8 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:8080",
+  "opticaquillacollo.netlify.app",
+  "https://optical-back.onrender.com",
 ];
 
 const corsOptions = {
