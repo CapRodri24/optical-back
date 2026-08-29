@@ -9,7 +9,6 @@ const getOrCreateCaja = async (tiendaId) => {
     console.log("=== getOrCreateCaja ===");
     console.log("Buscando caja para tiendaId:", tiendaId);
 
-    // Buscar caja existente
     let result = await query(
       `SELECT id_caja, id_tienda, nombre_caja, total, estado 
        FROM caja 
@@ -19,13 +18,11 @@ const getOrCreateCaja = async (tiendaId) => {
 
     console.log("Cajas encontradas:", result.rows.length);
 
-    // Si existe una caja, devolverla
     if (result.rows.length > 0) {
       console.log("✅ Caja existente encontrada ID:", result.rows[0].id_caja);
       return result.rows[0];
     }
 
-    // Si NO existe, crear UNA SOLA caja
     console.log("⚠️ No se encontró caja, creando una nueva...");
     
     const newCaja = await query(
@@ -71,14 +68,12 @@ const getMovimientos = async (filtros) => {
   try {
     const { tiendaId, filterType, specificDate, startDate, endDate, sortOrder } = filtros;
 
-    // Obtener la caja
     const caja = await getOrCreateCaja(tiendaId);
 
     let whereClauses = ['tc.id_caja = $1'];
     let params = [caja.id_caja];
     let paramCount = 2;
 
-    // Filtros de fecha
     switch (filterType) {
       case 'today':
         whereClauses.push(`DATE(tc.fecha) = CURRENT_DATE`);
@@ -126,28 +121,35 @@ const getMovimientos = async (filtros) => {
         tc.tipo_movimiento,
         tc.descripcion,
         tc.id_venta,
-        u.usuario as usuario_username
+        u.usuario as usuario_username,
+        p.codigo_pedido  -- 🔥 OBTENEMOS EL CÓDIGO DEL PEDIDO
       FROM transaccion_caja tc
       LEFT JOIN usuario u ON tc.id_usuario = u.id_usuario
+      LEFT JOIN venta v ON tc.id_venta = v.id_venta  -- 🔥 JOIN CON VENTA
+      LEFT JOIN pedido p ON v.id_pedido = p.id_pedido  -- 🔥 JOIN CON PEDIDO
       WHERE ${whereClauses.join(' AND ')}
       ORDER BY tc.fecha ${order}
     `;
 
     const result = await query(queryText, params);
 
-    const movimientos = result.rows.map(row => ({
-      idmovimiento_caja: row.id_transaccion_caja.toString(),
-      tipo: row.tipo_movimiento,
-      monto: parseFloat(row.monto),
-      monto_anterior: parseFloat(row.monto_anterior),
-      monto_nuevo: parseFloat(row.monto_nuevo),
-      descripcion: row.descripcion || '',
-      fecha: row.fecha.toISOString(),
-      usuario_username: row.usuario_username || 'admin',
-      ventaId: row.id_venta
-    }));
+    const movimientos = result.rows.map(row => {
+      return {
+        idmovimiento_caja: row.id_transaccion_caja.toString(),
+        tipo: row.tipo_movimiento,
+        monto: parseFloat(row.monto),
+        monto_anterior: parseFloat(row.monto_anterior),
+        monto_nuevo: parseFloat(row.monto_nuevo),
+        descripcion: row.descripcion || '',
+        fecha: row.fecha.toISOString(),
+        usuario_username: row.usuario_username || 'admin',
+        // 🔥 ENVIAMOS EL CÓDIGO DEL PEDIDO (NO EL ID_VENTA)
+        codigo_pedido: row.codigo_pedido || null,
+        // Mantenemos id_venta por compatibilidad pero NO lo usaremos para el ojito
+        id_venta: row.id_venta ? String(row.id_venta) : null
+      };
+    });
 
-    // Calcular totales
     const ingresos = movimientos
       .filter(m => m.tipo === 'ingreso')
       .reduce((sum, m) => sum + m.monto, 0);
@@ -239,15 +241,12 @@ const registrarMovimiento = async (data) => {
   try {
     const { tipo, monto, descripcion, tiendaId, userId, username, ventaId } = data;
 
-    // Obtener la caja
     const caja = await getOrCreateCaja(tiendaId);
 
-    // Verificar que la caja esté abierta
     if (caja.estado !== 'abierta') {
       throw new Error("La caja está cerrada. Debe abrirla primero.");
     }
 
-    // Verificar que no haya egreso mayor al saldo
     if (tipo === 'egreso' && parseFloat(caja.total) - monto < 0) {
       throw new Error(`Saldo insuficiente. Saldo actual: ${parseFloat(caja.total).toFixed(2)} Bs`);
     }
@@ -257,7 +256,6 @@ const registrarMovimiento = async (data) => {
       ? montoAnterior + monto 
       : montoAnterior - monto;
 
-    // Registrar la transacción
     const result = await query(
       `INSERT INTO transaccion_caja (
         id_caja, fecha, id_usuario, monto_nuevo, monto_anterior, 
@@ -277,7 +275,6 @@ const registrarMovimiento = async (data) => {
       ]
     );
 
-    // Actualizar el total de la caja
     await query(
       `UPDATE caja SET total = $1 WHERE id_caja = $2`,
       [montoNuevo, caja.id_caja]
@@ -295,7 +292,8 @@ const registrarMovimiento = async (data) => {
         descripcion: row.descripcion || '',
         fecha: row.fecha.toISOString(),
         usuario_username: username,
-        ventaId: row.id_venta
+        codigo_pedido: null, // No tenemos código de pedido en un movimiento manual
+        id_venta: row.id_venta ? String(row.id_venta) : null
       },
       caja: {
         id_caja: caja.id_caja,
@@ -320,10 +318,8 @@ const abrirCaja = async (data) => {
     console.log("monto:", monto);
     console.log("tiendaId:", tiendaId);
 
-    // Obtener la caja
     const caja = await getOrCreateCaja(tiendaId);
 
-    // Verificar que la caja esté cerrada
     if (caja.estado === 'abierta') {
       throw new Error("La caja ya está abierta");
     }
@@ -331,14 +327,13 @@ const abrirCaja = async (data) => {
     const montoAnterior = parseFloat(caja.total);
     const montoNuevo = monto;
 
-    // Registrar la transacción de apertura
     const result = await query(
       `INSERT INTO transaccion_caja (
         id_caja, fecha, id_usuario, monto_nuevo, monto_anterior, 
         monto, tipo_movimiento, descripcion, id_venta
       ) VALUES ($1, NOW(), $2, $3, $4, $5, 'apertura', 'Apertura de caja', NULL)
       RETURNING id_transaccion_caja, fecha, monto, monto_anterior, monto_nuevo, 
-                tipo_movimiento, descripcion`,
+                tipo_movimiento, descripcion, id_venta`,
       [
         caja.id_caja,
         userId,
@@ -348,7 +343,6 @@ const abrirCaja = async (data) => {
       ]
     );
 
-    // Actualizar el estado y total de la caja
     await query(
       `UPDATE caja SET total = $1, estado = 'abierta' WHERE id_caja = $2`,
       [montoNuevo, caja.id_caja]
@@ -370,7 +364,9 @@ const abrirCaja = async (data) => {
         monto_nuevo: parseFloat(row.monto_nuevo),
         descripcion: row.descripcion || '',
         fecha: row.fecha.toISOString(),
-        usuario_username: username
+        usuario_username: username,
+        codigo_pedido: null,
+        id_venta: null
       }
     };
   } catch (error) {
@@ -390,17 +386,14 @@ const cerrarCaja = async (data) => {
     console.log("monto:", monto);
     console.log("tiendaId:", tiendaId);
 
-    // Obtener la caja
     const caja = await getOrCreateCaja(tiendaId);
 
-    // Verificar que la caja esté abierta
     if (caja.estado === 'cerrada') {
       throw new Error("La caja ya está cerrada");
     }
 
     const totalActual = parseFloat(caja.total);
 
-    // Verificar que el monto coincida con el total
     if (Math.abs(monto - totalActual) > 0.01) {
       throw new Error(
         `El monto ingresado (${monto.toFixed(2)} Bs) no coincide con el total de la caja (${totalActual.toFixed(2)} Bs)`
@@ -410,14 +403,13 @@ const cerrarCaja = async (data) => {
     const montoAnterior = totalActual;
     const montoNuevo = totalActual;
 
-    // Registrar la transacción de cierre
     const result = await query(
       `INSERT INTO transaccion_caja (
         id_caja, fecha, id_usuario, monto_nuevo, monto_anterior, 
         monto, tipo_movimiento, descripcion, id_venta
       ) VALUES ($1, NOW(), $2, $3, $4, $5, 'cierre', 'Cierre de caja', NULL)
       RETURNING id_transaccion_caja, fecha, monto, monto_anterior, monto_nuevo, 
-                tipo_movimiento, descripcion`,
+                tipo_movimiento, descripcion, id_venta`,
       [
         caja.id_caja,
         userId,
@@ -427,7 +419,6 @@ const cerrarCaja = async (data) => {
       ]
     );
 
-    // Actualizar el estado de la caja
     await query(
       `UPDATE caja SET estado = 'cerrada' WHERE id_caja = $1`,
       [caja.id_caja]
@@ -449,7 +440,9 @@ const cerrarCaja = async (data) => {
         monto_nuevo: parseFloat(row.monto_nuevo),
         descripcion: row.descripcion || '',
         fecha: row.fecha.toISOString(),
-        usuario_username: username
+        usuario_username: username,
+        codigo_pedido: null,
+        id_venta: null
       }
     };
   } catch (error) {

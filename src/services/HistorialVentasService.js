@@ -1095,130 +1095,148 @@ const anularVenta = async (id, userInfo) => {
     const caja = cajaResult.rows[0];
     const idCaja = caja.id_caja;
 
-    // 8. OBTENER EL TOTAL DE EFECTIVO PAGADO EN LA VENTA
+    // 8. OBTENER EL TOTAL DE EFECTIVO PAGADO EN LA VENTA Y LOS IDS DE LAS VENTAS
     const pagosResult = await client.query(
       `
       SELECT 
-        COALESCE(SUM(monto_efectivo), 0) as total_efectivo,
-        COALESCE(SUM(monto_qr), 0) as total_qr
+        id_venta,
+        COALESCE(monto_efectivo, 0) as monto_efectivo,
+        COALESCE(monto_qr, 0) as monto_qr
       FROM venta
       WHERE id_pedido = $1
       `,
       [idNum]
     );
 
-    const totalEfectivoVenta = parseFloat(pagosResult.rows[0]?.total_efectivo || 0);
-    const totalQRVenta = parseFloat(pagosResult.rows[0]?.total_qr || 0);
+    // Si no hay pagos, la venta no existe o ya fue anulada
+    if (pagosResult.rows.length === 0) {
+      throw new Error("No se encontraron pagos para esta venta");
+    }
+
+    // Sumar todos los montos de todas las transacciones de venta
+    let totalEfectivoVenta = 0;
+    let totalQRVenta = 0;
+    const idsVenta = [];
+
+    for (const row of pagosResult.rows) {
+      totalEfectivoVenta += parseFloat(row.monto_efectivo || 0);
+      totalQRVenta += parseFloat(row.monto_qr || 0);
+      if (row.id_venta) {
+        idsVenta.push(row.id_venta);
+      }
+    }
 
     console.log(`💰 Total efectivo a reembolsar: ${totalEfectivoVenta} Bs`);
     console.log(`💰 Total QR a reembolsar: ${totalQRVenta} Bs`);
 
-    // 9. ELIMINAR LAS TRANSACCIONES DE CAJA RELACIONADAS CON ESTA VENTA
-    // Primero obtenemos las transacciones para saber cuánto se registró
-    const transaccionesResult = await client.query(
-      `
-      SELECT 
-        id_transaccion_caja,
-        monto,
-        tipo_movimiento,
-        monto_nuevo,
-        monto_anterior
-      FROM transaccion_caja
-      WHERE id_venta = $1 AND id_caja = $2
-      ORDER BY fecha DESC
-      `,
-      [pedido.codigo_pedido, idCaja]
-    );
-
-    console.log(`📊 Encontradas ${transaccionesResult.rows.length} transacciones de caja para eliminar`);
-
-    // Si hay efectivo que devolver, restar de la caja
-    if (totalEfectivoVenta > 0) {
-      // Obtener el total actual de la caja
-      const cajaActual = await client.query(
-        `SELECT total FROM caja WHERE id_caja = $1`,
-        [idCaja]
-      );
-
-      const totalActual = parseFloat(cajaActual.rows[0]?.total || 0);
+    // 9. OBTENER LAS TRANSACCIONES DE CAJA RELACIONADAS CON ESTA VENTA
+    // Buscar por id_venta en lugar de id_venta (que puede ser NULL)
+    if (idsVenta.length > 0) {
+      // Crear placeholders para los IDs de venta
+      const placeholders = idsVenta.map((_, idx) => `$${idx + 1}`).join(', ');
       
-      // Calcular el nuevo total restando el efectivo que se devuelve
-      const nuevoTotal = Math.max(0, totalActual - totalEfectivoVenta);
-
-      console.log(`💰 Caja: total actual ${totalActual} Bs, restando ${totalEfectivoVenta} Bs = ${nuevoTotal} Bs`);
-
-      // Actualizar el total de la caja
-      await client.query(
+      const transaccionesResult = await client.query(
         `
-        UPDATE caja 
-        SET total = $1 
-        WHERE id_caja = $2
-        `,
-        [nuevoTotal, idCaja]
-      );
-
-      // Registrar el egreso por anulación (movimiento de reversión)
-      await client.query(
-        `
-        INSERT INTO transaccion_caja (
-          id_caja,
-          id_usuario,
-          monto_nuevo,
-          monto_anterior,
+        SELECT 
+          id_transaccion_caja,
           monto,
           tipo_movimiento,
-          descripcion,
-          id_venta,
-          fecha
-        )
-        VALUES (
-          $1, 
-          $2, 
-          $3,
-          $4,
-          $5,
-          'egreso',
-          $6,
-          $7,
-          TIMEZONE('America/La_Paz', NOW())
-        )
+          monto_nuevo,
+          monto_anterior
+        FROM transaccion_caja
+        WHERE id_venta IN (${placeholders}) AND id_caja = $${idsVenta.length + 1}
+        ORDER BY fecha DESC
         `,
-        [
-          idCaja,
-          userId,
-          nuevoTotal,
-          totalActual,
-          totalEfectivoVenta,
-          `ANULACIÓN - Devolución efectivo Venta ${pedido.codigo_pedido}`,
-          pedido.codigo_pedido
-        ]
+        [...idsVenta, idCaja]
       );
 
-      console.log(`✅ Registrado egreso de ${totalEfectivoVenta} Bs por anulación`);
-    }
+      console.log(`📊 Encontradas ${transaccionesResult.rows.length} transacciones de caja para eliminar`);
 
-    // 10. ELIMINAR LAS TRANSACCIONES ORIGINALES DE CAJA (las que se crearon al pagar)
-    if (transaccionesResult.rows.length > 0) {
+      // 10. SI HAY EFECTIVO QUE DEVOLVER, RESTAR DE LA CAJA
+      if (totalEfectivoVenta > 0) {
+        // Obtener el total actual de la caja
+        const cajaActual = await client.query(
+          `SELECT total FROM caja WHERE id_caja = $1`,
+          [idCaja]
+        );
+
+        const totalActual = parseFloat(cajaActual.rows[0]?.total || 0);
+        
+        // Calcular el nuevo total restando el efectivo que se devuelve
+        const nuevoTotal = Math.max(0, totalActual - totalEfectivoVenta);
+
+        console.log(`💰 Caja: total actual ${totalActual} Bs, restando ${totalEfectivoVenta} Bs = ${nuevoTotal} Bs`);
+
+        // Actualizar el total de la caja
+        await client.query(
+          `
+          UPDATE caja 
+          SET total = $1 
+          WHERE id_caja = $2
+          `,
+          [nuevoTotal, idCaja]
+        );
+
+        // Registrar el egreso por anulación
+        await client.query(
+          `
+          INSERT INTO transaccion_caja (
+            id_caja,
+            id_usuario,
+            monto_nuevo,
+            monto_anterior,
+            monto,
+            tipo_movimiento,
+            descripcion,
+            id_venta,
+            fecha
+          )
+          VALUES (
+            $1, 
+            $2, 
+            $3,
+            $4,
+            $5,
+            'egreso',
+            $6,
+            NULL,
+            TIMEZONE('America/La_Paz', NOW())
+          )
+          `,
+          [
+            idCaja,
+            userId,
+            nuevoTotal,
+            totalActual,
+            totalEfectivoVenta,
+            `ANULACIÓN - Devolución efectivo Venta ${pedido.codigo_pedido}`
+          ]
+        );
+
+        console.log(`✅ Registrado egreso de ${totalEfectivoVenta} Bs por anulación`);
+      }
+
+      // 11. ELIMINAR LAS TRANSACCIONES ORIGINALES DE CAJA
       await client.query(
-        `DELETE FROM transaccion_caja WHERE id_venta = $1 AND id_caja = $2`,
-        [pedido.codigo_pedido, idCaja]
+        `DELETE FROM transaccion_caja WHERE id_venta IN (${placeholders}) AND id_caja = $${idsVenta.length + 1}`,
+        [...idsVenta, idCaja]
       );
-      console.log(`✅ Eliminadas ${transaccionesResult.rows.length} transacciones de caja originales`);
+      console.log(`✅ Eliminadas transacciones de caja originales`);
     }
 
-    // 11. ELIMINAR REGISTROS DE VENTA
+    // 12. ELIMINAR REGISTROS DE VENTA
     await client.query(
       `DELETE FROM venta WHERE id_pedido = $1`,
       [idNum]
     );
 
-    // 12. ELIMINAR PAGO PENDIENTE
+    // 13. ELIMINAR PAGO PENDIENTE
     await client.query(
       `DELETE FROM pago_pendiente WHERE id_pedido = $1`,
       [idNum]
     );
 
-    // 13. ELIMINAR EL PEDIDO
+    // 14. ELIMINAR EL PEDIDO
     await client.query(
       `DELETE FROM pedido WHERE id_pedido = $1`,
       [idNum]

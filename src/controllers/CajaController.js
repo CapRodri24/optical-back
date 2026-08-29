@@ -76,6 +76,9 @@ const getMovimientos = async (req, res) => {
       sortOrder: sortOrder || 'desc'
     });
 
+    console.log("=== Movimientos a enviar ===");
+    console.log("Primer movimiento:", result.movimientos[0]);
+
     res.json({
       success: true,
       movimientos: result.movimientos,
@@ -178,6 +181,7 @@ const registrarMovimiento = async (req, res) => {
     console.log("tipo:", tipo);
     console.log("monto:", monto);
     console.log("tiendaId:", tiendaId);
+    console.log("ventaId:", ventaId);
 
     if (!tiendaId) {
       return res.status(400).json({
@@ -223,6 +227,9 @@ const registrarMovimiento = async (req, res) => {
       username,
       ventaId: ventaId || null
     });
+
+    console.log("=== Movimiento registrado ===");
+    console.log("Movimiento:", result.movimiento);
 
     res.status(201).json({
       success: true,
