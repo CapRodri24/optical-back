@@ -65,24 +65,11 @@ const authenticateUser = async (username, password) => {
     // 4. Obtener tiendas del usuario SOLO ACTIVAS con LOGO
     let stores = [];
     
-    // Si es Spider Admin, obtener TODAS las tiendas activas
+    // SI ES SPIDER ADMIN - NO NECESITA TIENDAS
     if (user.rol_nombre === 'Spider Admin') {
-      console.log("Es Spider Admin, obteniendo TODAS las tiendas activas");
-      const allStoresQuery = `
-        SELECT 
-          t.id_tienda,
-          t.nombre_tienda,
-          t.id_negocio,
-          n.nombre_negocio,
-          t.estado,
-          t.logo  -- <--- INCLUIR LOGO
-        FROM tienda t
-        INNER JOIN negocio n ON t.id_negocio = n.id_negocio
-        WHERE t.estado = 'activo'
-      `;
-      const allStoresResult = await query(allStoresQuery);
-      stores = allStoresResult.rows;
-      console.log("Tiendas activas totales (Spider Admin):", stores.length);
+      console.log("Es Spider Admin - no necesita tiendas");
+      // Spider Admin puede acceder sin tiendas
+      stores = [];
     } else {
       // Para otros roles, obtener solo tiendas activas con LOGO
       const storesQuery = `
@@ -92,7 +79,7 @@ const authenticateUser = async (username, password) => {
           t.id_negocio,
           n.nombre_negocio,
           t.estado,
-          t.logo  -- <--- INCLUIR LOGO
+          t.logo
         FROM usuario_tienda ut
         INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
         INNER JOIN negocio n ON t.id_negocio = n.id_negocio
@@ -103,15 +90,15 @@ const authenticateUser = async (username, password) => {
       const storesResult = await query(storesQuery, [user.id_usuario]);
       stores = storesResult.rows;
       console.log("Tiendas activas encontradas (usuario):", stores.length);
-    }
 
-    // Verificar si el usuario tiene al menos una tienda activa
-    if (stores.length === 0) {
-      console.log("El usuario no tiene tiendas activas");
-      return {
-        success: false,
-        message: "Usuario sin tiendas activas"
-      };
+      // Verificar si el usuario tiene al menos una tienda activa
+      if (stores.length === 0) {
+        console.log("El usuario no tiene tiendas activas");
+        return {
+          success: false,
+          message: "Usuario sin tiendas activas"
+        };
+      }
     }
 
     // 5. Obtener permisos del usuario
@@ -165,7 +152,7 @@ const authenticateUser = async (username, password) => {
       id_negocio: s.id_negocio,
       nombre_negocio: s.nombre_negocio,
       estado: s.estado,
-      logo: s.logo ? s.logo.toString('base64') : null // <--- CONVERTIR A BASE64
+      logo: s.logo ? s.logo.toString('base64') : null
     }));
 
     const userData = {
@@ -183,13 +170,16 @@ const authenticateUser = async (username, password) => {
       tiendaIds: storesWithLogo.map(s => s.id_tienda),
       tiendaNombre: storesWithLogo.length > 0 ? storesWithLogo[0].nombre_tienda : null,
       negocioId: storesWithLogo.length > 0 ? storesWithLogo[0].id_negocio : null,
-      stores: storesWithLogo
+      stores: storesWithLogo,
+      // Flag para identificar si es Spider Admin
+      isSpiderAdmin: user.rol_nombre === 'Spider Admin'
     };
 
     console.log("Datos de usuario a retornar:");
+    console.log("- es Spider Admin:", userData.isSpiderAdmin);
     console.log("- tiendaIds:", userData.tiendaIds);
     console.log("- tiendaNombre:", userData.tiendaNombre);
-    console.log("- stores activas con logo:", userData.stores.length);
+    console.log("- stores:", userData.stores.length);
 
     return {
       success: true,
@@ -206,10 +196,17 @@ const authenticateUser = async (username, password) => {
   }
 };
 
-const getUserStores = async (userId) => {
+const getUserStores = async (userId, userRole) => {
   try {
     console.log("=== getUserStores ===");
     console.log("userId:", userId);
+    console.log("userRole:", userRole);
+    
+    // Si es Spider Admin, retornar lista vacía
+    if (userRole === 'Spider Admin') {
+      console.log("Es Spider Admin - sin tiendas");
+      return [];
+    }
     
     // Obtener solo tiendas activas con LOGO
     const storesQuery = `
@@ -219,7 +216,7 @@ const getUserStores = async (userId) => {
         t.id_negocio,
         n.nombre_negocio,
         t.estado,
-        t.logo  -- <--- INCLUIR LOGO
+        t.logo
       FROM usuario_tienda ut
       INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
       INNER JOIN negocio n ON t.id_negocio = n.id_negocio
@@ -237,7 +234,7 @@ const getUserStores = async (userId) => {
       id_negocio: s.id_negocio,
       nombre_negocio: s.nombre_negocio,
       estado: s.estado,
-      logo: s.logo ? s.logo.toString('base64') : null // <--- CONVERTIR A BASE64
+      logo: s.logo ? s.logo.toString('base64') : null
     }));
   } catch (error) {
     console.error("Error al obtener tiendas del usuario:", error);

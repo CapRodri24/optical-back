@@ -21,7 +21,8 @@ const login = async (req, res) => {
 
     console.log("Resultado autenticación:", result.success);
     if (result.success) {
-      console.log("Tiendas activas en respuesta:", result.stores?.length || 0);
+      console.log("Es Spider Admin:", result.user.isSpiderAdmin);
+      console.log("Tiendas en respuesta:", result.stores?.length || 0);
       console.log("Usuario tiendaIds:", result.user.tiendaIds);
       
       res.json({
@@ -78,10 +79,16 @@ const verifyToken = async (req, res) => {
     console.log("req.user:", req.user);
     
     if (req.user) {
-      const stores = await loginService.getUserStores(req.user.id_usuario);
+      // Pasar el rol del usuario para identificar Spider Admin
+      const stores = await loginService.getUserStores(
+        req.user.id_usuario,
+        req.user.rol
+      );
       
       console.log("Usuario:", req.user.usuario);
-      console.log("Tiendas activas encontradas:", stores.length);
+      console.log("Rol:", req.user.rol);
+      console.log("Es Spider Admin:", req.user.rol === 'Spider Admin');
+      console.log("Tiendas encontradas:", stores.length);
       
       // Construir objeto de usuario para el frontend
       const userData = {
@@ -90,14 +97,15 @@ const verifyToken = async (req, res) => {
         username: req.user.usuario,
         name: req.user.nombre,
         lastname: req.user.apellido,
-        role: req.user.rol_nombre,
+        role: req.user.rol_nombre || req.user.rol,
         id_rol: req.user.id_rol,
         phoneNumber: req.user.celular,
         status: req.user.estado,
         tiendaIds: stores.map(s => s.id_tienda),
         tiendaNombre: stores.length > 0 ? stores[0].nombre_tienda : null,
         negocioId: stores.length > 0 ? stores[0].id_negocio : null,
-        stores: stores
+        stores: stores || [],
+        isSpiderAdmin: req.user.rol === 'Spider Admin' || req.user.rol_nombre === 'Spider Admin'
       };
       
       res.json({
@@ -160,10 +168,16 @@ const getCurrentUser = async (req, res) => {
     console.log("req.user:", req.user);
     
     if (req.user) {
-      const stores = await loginService.getUserStores(req.user.id_usuario);
+      // Pasar el rol del usuario para identificar Spider Admin
+      const stores = await loginService.getUserStores(
+        req.user.id_usuario,
+        req.user.rol
+      );
       
       console.log("Usuario:", req.user.usuario);
-      console.log("Tiendas activas encontradas:", stores.length);
+      console.log("Rol:", req.user.rol);
+      console.log("Es Spider Admin:", req.user.rol === 'Spider Admin');
+      console.log("Tiendas encontradas:", stores.length);
       
       const userData = {
         id_usuario: req.user.id_usuario,
@@ -171,14 +185,15 @@ const getCurrentUser = async (req, res) => {
         username: req.user.usuario,
         name: req.user.nombre,
         lastname: req.user.apellido,
-        role: req.user.rol_nombre,
+        role: req.user.rol_nombre || req.user.rol,
         id_rol: req.user.id_rol,
         phoneNumber: req.user.celular,
         status: req.user.estado,
         tiendaIds: stores.map(s => s.id_tienda),
         tiendaNombre: stores.length > 0 ? stores[0].nombre_tienda : null,
         negocioId: stores.length > 0 ? stores[0].id_negocio : null,
-        stores: stores
+        stores: stores || [],
+        isSpiderAdmin: req.user.rol === 'Spider Admin' || req.user.rol_nombre === 'Spider Admin'
       };
       
       res.json({
