@@ -77,7 +77,7 @@ const getPermissionsForUser = async (userId, roleId) => {
 };
 
 // ============================================
-// USUARIOS
+// USUARIOS - CORREGIDO
 // ============================================
 
 const getUsers = async (tiendaId, negocioId) => {
@@ -98,29 +98,31 @@ const getUsers = async (tiendaId, negocioId) => {
       INNER JOIN rol r ON u.id_rol = r.id_rol
       LEFT JOIN persona_negocio pn ON p.id_persona = pn.id_persona
       WHERE u.estado != 'eliminado'
-        AND u.id_usuario IN (
-          SELECT ut.id_usuario 
-          FROM usuario_tienda ut
-          INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
     `;
 
     const params = [];
 
-    if (negocioId) {
-      queryText += ` WHERE t.id_negocio = $1`;
-      params.push(negocioId);
-    }
-
-    if (tiendaId) {
-      if (negocioId) {
+    // Si hay filtros de tienda o negocio, aplicarlos
+    if (tiendaId || negocioId) {
+      queryText += ` AND u.id_usuario IN (
+        SELECT DISTINCT ut.id_usuario 
+        FROM usuario_tienda ut
+        INNER JOIN tienda t ON ut.id_tienda = t.id_tienda
+        WHERE 1=1
+      `;
+      
+      if (tiendaId) {
         queryText += ` AND t.id_tienda = $${params.length + 1}`;
-      } else {
-        queryText += ` WHERE t.id_tienda = $${params.length + 1}`;
+        params.push(tiendaId);
       }
-      params.push(tiendaId);
+      
+      if (negocioId) {
+        queryText += ` AND t.id_negocio = $${params.length + 1}`;
+        params.push(negocioId);
+      }
+      
+      queryText += ` )`;
     }
-
-    queryText += ` )`;
 
     queryText += ` ORDER BY p.nombre ASC`;
 
@@ -128,6 +130,7 @@ const getUsers = async (tiendaId, negocioId) => {
 
     const users = [];
     for (const row of result.rows) {
+      // Obtener tiendas del usuario
       const tiendasResult = await query(
         `SELECT t.id_tienda as id, t.nombre_tienda as nombre
          FROM usuario_tienda ut
@@ -137,8 +140,10 @@ const getUsers = async (tiendaId, negocioId) => {
       );
       const tiendas = tiendasResult.rows;
 
+      // Obtener permisos del usuario
       const permissions = await getPermissionsForUser(row.id, row.id_rol);
 
+      // Mapear estado
       const statusMap = {
         'activo': 'active',
         'inactivo': 'inactive',
@@ -161,6 +166,7 @@ const getUsers = async (tiendaId, negocioId) => {
       });
     }
 
+    // Eliminar duplicados (por si acaso)
     const uniqueUsers = [];
     const seenIds = new Set();
     for (const user of users) {
@@ -268,6 +274,7 @@ const updateUser = async (userId, userData) => {
       throw new Error("No se puede modificar un Spider Admin");
     }
 
+    // Actualizar persona
     if (name || lastname || phoneNumber) {
       const updates = [];
       const params = [];
@@ -298,6 +305,7 @@ const updateUser = async (userId, userData) => {
       }
     }
 
+    // Actualizar usuario
     if (username || password || status) {
       const updates = [];
       const params = [];
@@ -341,6 +349,7 @@ const updateUser = async (userId, userData) => {
       }
     }
 
+    // Actualizar carnet
     if (carnet) {
       await query(
         `UPDATE persona_negocio SET carnet_persona = $1 
@@ -349,6 +358,7 @@ const updateUser = async (userId, userData) => {
       );
     }
 
+    // Actualizar tiendas
     if (tiendaIds !== undefined || tiendaId !== undefined) {
       const tiendasAsignar = tiendaIds && tiendaIds.length > 0 
         ? tiendaIds.filter(id => id && id.trim() !== "") 
@@ -366,6 +376,7 @@ const updateUser = async (userId, userData) => {
       }
     }
 
+    // Actualizar permisos
     if (grantedPermissions !== undefined || revokedPermissions !== undefined) {
       await query('DELETE FROM usuario_permiso WHERE id_usuario = $1', [userId]);
 
@@ -419,7 +430,6 @@ const deleteUser = async (userId) => {
 
     const user = userCheck.rows[0];
 
-    // Solo Spider Admin no se puede eliminar
     if (user.id_rol === 1) {
       throw new Error("No se puede eliminar un Spider Admin");
     }
@@ -445,7 +455,6 @@ const toggleUserStatus = async (userId) => {
 
     const user = userCheck.rows[0];
 
-    // Solo Spider Admin no se puede cambiar estado
     if (user.id_rol === 1) {
       throw new Error("No se puede cambiar el estado de un Spider Admin");
     }
@@ -473,7 +482,6 @@ const updateUserPermissions = async (userId, granted, revoked) => {
 
     const user = userCheck.rows[0];
 
-    // Spider Admin y Medidor no se pueden modificar permisos
     if (user.id_rol === 1 || user.id_rol === 4) {
       throw new Error("No se pueden modificar los permisos de este usuario");
     }
@@ -557,12 +565,11 @@ const getUserStats = async () => {
 };
 
 // ============================================
-// NUEVO: CAMBIAR CONTRASEÑA
+// CAMBIAR CONTRASEÑA
 // ============================================
 
 const changePassword = async (userId, currentPassword, newPassword) => {
   try {
-    // Verificar que el usuario existe
     const userCheck = await query(
       'SELECT id_usuario, id_rol, password FROM usuario WHERE id_usuario = $1',
       [userId]
@@ -573,23 +580,19 @@ const changePassword = async (userId, currentPassword, newPassword) => {
 
     const user = userCheck.rows[0];
 
-    // Verificar que la contraseña actual sea correcta
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
     if (!isPasswordValid) {
       throw new Error("La contraseña actual es incorrecta");
     }
 
-    // Verificar que la nueva contraseña sea diferente a la actual
     const isSamePassword = await bcrypt.compare(newPassword, user.password);
     if (isSamePassword) {
       throw new Error("La nueva contraseña debe ser diferente a la actual");
     }
 
-    // Hashear la nueva contraseña
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    // Actualizar la contraseña
     await query(
       'UPDATE usuario SET password = $1 WHERE id_usuario = $2',
       [hashedPassword, userId]
@@ -606,7 +609,7 @@ const changePassword = async (userId, currentPassword, newPassword) => {
 };
 
 // ============================================
-// TIENDAS - Solo lo necesario
+// TIENDAS
 // ============================================
 
 const getMaxUsersForStore = async (tiendaId) => {
@@ -739,7 +742,7 @@ module.exports = {
   toggleUserStatus,
   updateUserPermissions,
   getUserStats,
-  changePassword, // <--- NUEVO
+  changePassword,
   getMaxUsersForStore,
   getNegocioResponsable,
   deleteUserFromStore,
