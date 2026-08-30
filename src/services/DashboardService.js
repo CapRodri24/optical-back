@@ -34,6 +34,12 @@ const getUserTiendas = async (userId, userRole) => {
   }
 };
 
+// Helper para construir la lista de IDs de forma segura
+const buildTiendasStr = (tiendasIds) => {
+  if (!tiendasIds || tiendasIds.length === 0) return '';
+  return tiendasIds.join(',');
+};
+
 // Obtener estadísticas del dashboard (consolidadas)
 const getDashboardStats = async (userId, userRole) => {
   try {
@@ -50,39 +56,40 @@ const getDashboardStats = async (userId, userRole) => {
       };
     }
 
-    const tiendasStr = tiendasIds.join(',');
-
+    // Usar $1, $2, etc. para parámetros en lugar de concatenación
+    const tiendasStr = buildTiendasStr(tiendasIds);
+    
     // Obtener ventas de hoy
     const ventasHoyQuery = `
       SELECT COALESCE(SUM(p.total), 0) as total
       FROM pedido p
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE
         AND p.estado_pago != 'Pendiente'
     `;
-    const ventasHoyResult = await query(ventasHoyQuery);
+    const ventasHoyResult = await query(ventasHoyQuery, [tiendasIds]);
     const ventasHoy = parseFloat(ventasHoyResult.rows[0]?.total || 0);
 
     // Obtener ventas de ayer
     const ventasAyerQuery = `
       SELECT COALESCE(SUM(p.total), 0) as total
       FROM pedido p
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE - INTERVAL '1 day'
         AND p.estado_pago != 'Pendiente'
     `;
-    const ventasAyerResult = await query(ventasAyerQuery);
+    const ventasAyerResult = await query(ventasAyerQuery, [tiendasIds]);
     const ventasAyer = parseFloat(ventasAyerResult.rows[0]?.total || 0);
 
     // Obtener productos con stock bajo (menor al mínimo)
     const bajoStockQuery = `
       SELECT COUNT(*) as total
       FROM material_tienda mt
-      WHERE mt.id_tienda IN (${tiendasStr})
+      WHERE mt.id_tienda = ANY($1::int[])
         AND mt.stock < mt.stock_minimo
         AND mt.stock_minimo > 0
     `;
-    const bajoStockResult = await query(bajoStockQuery);
+    const bajoStockResult = await query(bajoStockQuery, [tiendasIds]);
     const productosBajoStock = parseInt(bajoStockResult.rows[0]?.total || 0);
 
     // Obtener estado de caja (cualquier caja abierta en las tiendas)
@@ -90,11 +97,11 @@ const getDashboardStats = async (userId, userRole) => {
       SELECT EXISTS (
         SELECT 1 
         FROM caja c
-        WHERE c.id_tienda IN (${tiendasStr})
+        WHERE c.id_tienda = ANY($1::int[])
           AND c.estado = 'abierta'
       ) as abierta
     `;
-    const cajaResult = await query(cajaQuery);
+    const cajaResult = await query(cajaQuery, [tiendasIds]);
     const cajaAbierta = cajaResult.rows[0]?.abierta || false;
 
     // Obtener última venta
@@ -107,12 +114,12 @@ const getDashboardStats = async (userId, userRole) => {
           ELSE 'Hace más de 1 día'
         END as ultima_venta
       FROM pedido p
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND p.estado_pago != 'Pendiente'
       ORDER BY p.fecha_pedido DESC
       LIMIT 1
     `;
-    const ultimaVentaResult = await query(ultimaVentaQuery);
+    const ultimaVentaResult = await query(ultimaVentaQuery, [tiendasIds]);
     const ultimaVenta = ultimaVentaResult.rows[0]?.ultima_venta || "Sin ventas";
 
     return {
@@ -138,19 +145,17 @@ const getSalesVariation = async (userId, userRole) => {
       return { hoy: 0, ayer: 0, porcentaje: 0, esPositivo: true };
     }
 
-    const tiendasStr = tiendasIds.join(',');
-
     const queryStr = `
       SELECT 
         COALESCE(SUM(CASE WHEN DATE(fecha_pedido) = CURRENT_DATE THEN total ELSE 0 END), 0) as hoy,
         COALESCE(SUM(CASE WHEN DATE(fecha_pedido) = CURRENT_DATE - INTERVAL '1 day' THEN total ELSE 0 END), 0) as ayer
       FROM pedido
-      WHERE id_tienda IN (${tiendasStr})
+      WHERE id_tienda = ANY($1::int[])
         AND estado_pago != 'Pendiente'
         AND DATE(fecha_pedido) >= CURRENT_DATE - INTERVAL '1 day'
     `;
 
-    const result = await query(queryStr);
+    const result = await query(queryStr, [tiendasIds]);
     const hoy = parseFloat(result.rows[0]?.hoy || 0);
     const ayer = parseFloat(result.rows[0]?.ayer || 0);
     
@@ -189,19 +194,17 @@ const getDailyGoalProgress = async (userId, userRole) => {
       };
     }
 
-    const tiendasStr = tiendasIds.join(',');
-
     const lentesVendidosQuery = `
       SELECT COUNT(DISTINCT edl.id_lente) as total_lentes
       FROM pedido p
       INNER JOIN entrega_pendiente ep ON ep.id_pedido = p.id_pedido
       INNER JOIN entrega_detalle_lente edl ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE
         AND p.estado_pago != 'Pendiente'
     `;
 
-    const lentesResult = await query(lentesVendidosQuery);
+    const lentesResult = await query(lentesVendidosQuery, [tiendasIds]);
     const lentesVendidos = parseInt(lentesResult.rows[0]?.total_lentes || 0);
 
     const metaDiaria = 10;
@@ -235,7 +238,6 @@ const getDashboardStatsByStore = async (userId, userRole) => {
     }
 
     const tiendasIds = tiendas.map(t => t.id_tienda);
-    const tiendasStr = tiendasIds.join(',');
 
     // Obtener ventas de hoy por tienda
     const ventasHoyQuery = `
@@ -245,12 +247,12 @@ const getDashboardStatsByStore = async (userId, userRole) => {
         COALESCE(SUM(p.total), 0) as ventas_hoy
       FROM pedido p
       INNER JOIN tienda t ON t.id_tienda = p.id_tienda
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE
         AND p.estado_pago != 'Pendiente'
       GROUP BY p.id_tienda, t.nombre_tienda
     `;
-    const ventasHoyResult = await query(ventasHoyQuery);
+    const ventasHoyResult = await query(ventasHoyQuery, [tiendasIds]);
 
     // Obtener ventas de ayer por tienda
     const ventasAyerQuery = `
@@ -258,12 +260,12 @@ const getDashboardStatsByStore = async (userId, userRole) => {
         p.id_tienda,
         COALESCE(SUM(p.total), 0) as ventas_ayer
       FROM pedido p
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE - INTERVAL '1 day'
         AND p.estado_pago != 'Pendiente'
       GROUP BY p.id_tienda
     `;
-    const ventasAyerResult = await query(ventasAyerQuery);
+    const ventasAyerResult = await query(ventasAyerQuery, [tiendasIds]);
 
     // Obtener stock bajo por tienda
     const bajoStockQuery = `
@@ -271,28 +273,22 @@ const getDashboardStatsByStore = async (userId, userRole) => {
         mt.id_tienda,
         COUNT(*) as total
       FROM material_tienda mt
-      WHERE mt.id_tienda IN (${tiendasStr})
+      WHERE mt.id_tienda = ANY($1::int[])
         AND mt.stock < mt.stock_minimo
         AND mt.stock_minimo > 0
       GROUP BY mt.id_tienda
     `;
-    const bajoStockResult = await query(bajoStockQuery);
+    const bajoStockResult = await query(bajoStockQuery, [tiendasIds]);
 
     // Obtener estado de caja por tienda
     const cajaQuery = `
       SELECT 
         c.id_tienda,
-        EXISTS (
-          SELECT 1 
-          FROM caja c2
-          WHERE c2.id_tienda = c.id_tienda
-            AND c2.estado = 'abierta'
-        ) as abierta
-      FROM tienda c
-      WHERE c.id_tienda IN (${tiendasStr})
-      GROUP BY c.id_tienda
+        c.estado = 'abierta' as abierta
+      FROM caja c
+      WHERE c.id_tienda = ANY($1::int[])
     `;
-    const cajaResult = await query(cajaQuery);
+    const cajaResult = await query(cajaQuery, [tiendasIds]);
 
     // Obtener última venta por tienda
     const ultimaVentaQuery = `
@@ -305,11 +301,11 @@ const getDashboardStatsByStore = async (userId, userRole) => {
           ELSE 'Hace más de 1 día'
         END as ultima_venta
       FROM pedido p
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND p.estado_pago != 'Pendiente'
       ORDER BY p.id_tienda, p.fecha_pedido DESC
     `;
-    const ultimaVentaResult = await query(ultimaVentaQuery);
+    const ultimaVentaResult = await query(ultimaVentaQuery, [tiendasIds]);
 
     // Construir mapa de resultados
     const ventasHoyMap = {};
@@ -371,7 +367,6 @@ const getSalesVariationByStore = async (userId, userRole) => {
     }
 
     const tiendasIds = tiendas.map(t => t.id_tienda);
-    const tiendasStr = tiendasIds.join(',');
 
     const queryStr = `
       SELECT 
@@ -381,13 +376,13 @@ const getSalesVariationByStore = async (userId, userRole) => {
         COALESCE(SUM(CASE WHEN DATE(fecha_pedido) = CURRENT_DATE - INTERVAL '1 day' THEN total ELSE 0 END), 0) as ayer
       FROM pedido p
       INNER JOIN tienda t ON t.id_tienda = p.id_tienda
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND p.estado_pago != 'Pendiente'
         AND DATE(p.fecha_pedido) >= CURRENT_DATE - INTERVAL '1 day'
       GROUP BY p.id_tienda, t.nombre_tienda
     `;
 
-    const result = await query(queryStr);
+    const result = await query(queryStr, [tiendasIds]);
     
     // Crear mapa para todas las tiendas
     const tiendaMap = {};
@@ -442,7 +437,6 @@ const getDailyGoalProgressByStore = async (userId, userRole) => {
     }
 
     const tiendasIds = tiendas.map(t => t.id_tienda);
-    const tiendasStr = tiendasIds.join(',');
 
     const lentesVendidosQuery = `
       SELECT 
@@ -453,13 +447,13 @@ const getDailyGoalProgressByStore = async (userId, userRole) => {
       INNER JOIN tienda t ON t.id_tienda = p.id_tienda
       INNER JOIN entrega_pendiente ep ON ep.id_pedido = p.id_pedido
       INNER JOIN entrega_detalle_lente edl ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
-      WHERE p.id_tienda IN (${tiendasStr})
+      WHERE p.id_tienda = ANY($1::int[])
         AND DATE(p.fecha_pedido) = CURRENT_DATE
         AND p.estado_pago != 'Pendiente'
       GROUP BY p.id_tienda, t.nombre_tienda
     `;
 
-    const lentesResult = await query(lentesVendidosQuery);
+    const lentesResult = await query(lentesVendidosQuery, [tiendasIds]);
     
     const metaDiaria = 10;
     const tiendaMap = {};
