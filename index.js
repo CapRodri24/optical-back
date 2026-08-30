@@ -6,7 +6,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:8080",
-  "https://opticaquillacollo.netlify.app",  
+  "https://optilabs.netlify.app",  
   "https://optical-back.onrender.com",    
 ];
 
