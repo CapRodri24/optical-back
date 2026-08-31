@@ -72,7 +72,7 @@ const crearTienda = async (tiendaData, responsableData) => {
         precio,
         cant_usuarios
       ) 
-       VALUES ($1, $2, $3, $4, $5, 'activo', 500.00, 1) 
+       VALUES ($1, $2, $3, $4, $5, 'activo', 400.00, 1) 
        RETURNING id_tienda`,
       [
         idNegocio,
