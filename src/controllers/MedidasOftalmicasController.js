@@ -20,7 +20,6 @@ const getMedidas = async (req, res) => {
 
     const result = await medidasOftalmicasService.getMedidas(clientId);
 
-    // ✅ Cambio: Si no hay medidas, devolver 200 con data: null en lugar de 404
     if (!result) {
       return res.json({
         success: true,
@@ -60,11 +59,20 @@ const saveMedidas = async (req, res) => {
 
     console.log("=== Save Medidas Oftálmicas ===");
     console.log("clientId:", clientId);
+    console.log("add recibido:", add);
 
     if (!clientId) {
       return res.status(400).json({
         success: false,
         message: "El ID del cliente es requerido"
+      });
+    }
+
+    // ✅ Validar que ADD esté presente
+    if (!add || add === '+' || add === '-') {
+      return res.status(400).json({
+        success: false,
+        message: "El campo ADD es obligatorio para guardar las medidas"
       });
     }
 

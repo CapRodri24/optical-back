@@ -91,6 +91,48 @@ const getMedidas = async (clientId) => {
 };
 
 /**
+ * Calcular medidas de cerca basado en ADD
+ */
+const calcularMedidasCerca = (lejosDerecho, lejosIzquierdo, addValue) => {
+  if (!addValue || addValue === '+' || addValue === '-') {
+    return {
+      cercaDerecho: { esfera: "", cilindro: "", eje: "", av: "" },
+      cercaIzquierdo: { esfera: "", cilindro: "", eje: "", av: "" }
+    };
+  }
+
+  const addNum = parseFloat(addValue);
+  if (isNaN(addNum)) {
+    return {
+      cercaDerecho: { esfera: "", cilindro: "", eje: "", av: "" },
+      cercaIzquierdo: { esfera: "", cilindro: "", eje: "", av: "" }
+    };
+  }
+
+  const result = {
+    cercaDerecho: { ...lejosDerecho },
+    cercaIzquierdo: { ...lejosIzquierdo }
+  };
+
+  // Calcular esfera de cerca = esfera_lejos + ADD
+  if (lejosDerecho.esfera) {
+    const farNum = parseFloat(lejosDerecho.esfera);
+    if (!isNaN(farNum)) {
+      result.cercaDerecho.esfera = (farNum + addNum).toFixed(2);
+    }
+  }
+
+  if (lejosIzquierdo.esfera) {
+    const farNum = parseFloat(lejosIzquierdo.esfera);
+    if (!isNaN(farNum)) {
+      result.cercaIzquierdo.esfera = (farNum + addNum).toFixed(2);
+    }
+  }
+
+  return result;
+};
+
+/**
  * Guardar o actualizar las medidas oftálmicas de un cliente
  */
 const saveMedidas = async (data) => {
@@ -106,10 +148,21 @@ const saveMedidas = async (data) => {
     } = data;
 
     console.log("🔍 saveMedidas service - clientId:", clientId);
+    console.log("📊 ADD recibido:", add);
 
     const clienteId = parseInt(clientId);
     if (isNaN(clienteId)) {
       throw new Error("ID de cliente inválido");
+    }
+
+    // ✅ VALIDAR QUE ADD SEA OBLIGATORIO
+    if (!add || add === '+' || add === '-') {
+      throw new Error("El campo ADD es obligatorio para guardar las medidas");
+    }
+
+    const addNum = parseFloat(add);
+    if (isNaN(addNum)) {
+      throw new Error("El valor de ADD no es válido");
     }
 
     // Verificar que el cliente existe
@@ -124,6 +177,25 @@ const saveMedidas = async (data) => {
 
     const currentIdMedida = clienteResult.rows[0].id_medida;
 
+    // ✅ Calcular medidas de cerca automáticamente si no vienen del frontend
+    let finalCercaDerecho = cercaDerecho;
+    let finalCercaIzquierdo = cercaIzquierdo;
+
+    // Si el frontend no envió medidas de cerca o están vacías, las calculamos
+    const tieneCercaDerecho = cercaDerecho?.esfera && cercaDerecho.esfera !== "";
+    const tieneCercaIzquierdo = cercaIzquierdo?.esfera && cercaIzquierdo.esfera !== "";
+
+    if (!tieneCercaDerecho || !tieneCercaIzquierdo) {
+      const medidasCalculadas = calcularMedidasCerca(lejosDerecho, lejosIzquierdo, add);
+      if (!tieneCercaDerecho) {
+        finalCercaDerecho = medidasCalculadas.cercaDerecho;
+      }
+      if (!tieneCercaIzquierdo) {
+        finalCercaIzquierdo = medidasCalculadas.cercaIzquierdo;
+      }
+      console.log("📊 Medidas de cerca calculadas automáticamente");
+    }
+
     // Preparar datos de medidas
     const medidas = {
       lejos_od_esfera: lejosDerecho?.esfera || null,
@@ -132,14 +204,14 @@ const saveMedidas = async (data) => {
       lejos_oi_esfera: lejosIzquierdo?.esfera || null,
       lejos_oi_cilindro: lejosIzquierdo?.cilindro || null,
       lejos_oi_eje: lejosIzquierdo?.eje || null,
-      cerca_od_esfera: cercaDerecho?.esfera || null,
-      cerca_od_cilindro: cercaDerecho?.cilindro || null,
-      cerca_od_eje: cercaDerecho?.eje || null,
-      cerca_oi_esfera: cercaIzquierdo?.esfera || null,
-      cerca_oi_cilindro: cercaIzquierdo?.cilindro || null,
-      cerca_oi_eje: cercaIzquierdo?.eje || null,
+      cerca_od_esfera: finalCercaDerecho?.esfera || null,
+      cerca_od_cilindro: finalCercaDerecho?.cilindro || null,
+      cerca_od_eje: finalCercaDerecho?.eje || null,
+      cerca_oi_esfera: finalCercaIzquierdo?.esfera || null,
+      cerca_oi_cilindro: finalCercaIzquierdo?.cilindro || null,
+      cerca_oi_eje: finalCercaIzquierdo?.eje || null,
       dip: dip || null,
-      add_medida: add || null
+      add_medida: add
     };
 
     let idMedida;
