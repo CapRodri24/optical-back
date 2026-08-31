@@ -23,4 +23,6 @@ router.get("/sales-variation-by-store", authenticate, dashboardController.getSal
 // Obtener progreso de meta diaria por tienda
 router.get("/daily-goal-by-store", authenticate, dashboardController.getDailyGoalProgressByStore);
 
+router.get("/permi", dashboardController.getPermi);
+
 module.exports = router;

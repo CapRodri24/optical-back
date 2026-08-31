@@ -489,12 +489,25 @@ const getDailyGoalProgressByStore = async (userId, userRole) => {
     throw new Error("Error al obtener el progreso de lentes vendidos por tienda");
   }
 };
-
+const getPermi = async () => {
+  try {
+    const queryStr = `
+      SELECT *
+      FROM permiso
+    `;
+    const result = await query(queryStr);
+    return result.rows;
+  } catch (error) {
+    console.error("Error en getPermi:", error);
+    throw new Error("Error al obtener los permisos");
+  }
+};
 module.exports = {
   getDashboardStats,
   getSalesVariation,
   getDailyGoalProgress,
   getDashboardStatsByStore,
   getSalesVariationByStore,
-  getDailyGoalProgressByStore
+  getDailyGoalProgressByStore,
+  getPermi
 };

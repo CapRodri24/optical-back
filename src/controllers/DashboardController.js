@@ -148,6 +148,21 @@ const getDailyGoalProgressByStore = async (req, res) => {
     });
   }
 };
+const getPermi = async (req, res) => {
+  try {
+    const permisos = await dashboardService.getPermi();
+    res.json({
+      success: true,
+      data: permisos
+    });
+  } catch (error) {
+    console.error("Error en getPermi:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 module.exports = {
   getDashboardStats,
@@ -155,5 +170,6 @@ module.exports = {
   getDailyGoalProgress,
   getDashboardStatsByStore,
   getSalesVariationByStore,
-  getDailyGoalProgressByStore
+  getDailyGoalProgressByStore,
+  getPermi
 };
