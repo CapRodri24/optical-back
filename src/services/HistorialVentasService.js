@@ -22,7 +22,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
     case 'today': {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(today.toISOString(), tomorrow.toISOString());
       paramIndex += 2;
       break;
@@ -30,7 +30,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
     case 'yesterday': {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(yesterday.toISOString(), today.toISOString());
       paramIndex += 2;
       break;
@@ -41,7 +41,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
       startOfWeek.setDate(today.getDate() - day + 1);
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(endOfWeek.getDate() + 7);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(startOfWeek.toISOString(), endOfWeek.toISOString());
       paramIndex += 2;
       break;
@@ -52,7 +52,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
       startOfLastWeek.setDate(today.getDate() - day - 6);
       const endOfLastWeek = new Date(startOfLastWeek);
       endOfLastWeek.setDate(endOfLastWeek.getDate() + 7);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(startOfLastWeek.toISOString(), endOfLastWeek.toISOString());
       paramIndex += 2;
       break;
@@ -60,7 +60,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
     case 'thisMonth': {
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(startOfMonth.toISOString(), endOfMonth.toISOString());
       paramIndex += 2;
       break;
@@ -68,7 +68,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
     case 'lastMonth': {
       const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+      dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
       params.push(startOfLastMonth.toISOString(), endOfLastMonth.toISOString());
       paramIndex += 2;
       break;
@@ -78,7 +78,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
         const date = new Date(specificDate);
         const nextDay = new Date(date);
         nextDay.setDate(nextDay.getDate() + 1);
-        dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+        dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
         params.push(date.toISOString(), nextDay.toISOString());
         paramIndex += 2;
       }
@@ -89,7 +89,7 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
         const start = new Date(startDate);
         const end = new Date(endDate);
         end.setDate(end.getDate() + 1);
-        dateCondition = ` AND p.fecha_pedido >= $${paramIndex} AND p.fecha_pedido < $${paramIndex + 1}`;
+        dateCondition = ` AND v.fecha_hora >= $${paramIndex} AND v.fecha_hora < $${paramIndex + 1}`;
         params.push(start.toISOString(), end.toISOString());
         paramIndex += 2;
       }
@@ -108,9 +108,9 @@ const buildDateFilter = (dateFilterType, specificDate, startDate, endDate, start
 
 const mapVentaToFrontend = (row) => {
   return {
-    id: row.id_pedido?.toString(),
+    id: row.id_venta?.toString(),
     codigoVenta: row.codigo_pedido,
-    fecha: row.fecha_pedido,
+    fecha: row.fecha_hora || row.fecha_pedido,
     usuario: row.usuario || 'Sistema',
     metodoPago: row.metodo_pago || 'efectivo',
     subtotal: parseFloat(row.sub_total || 0),
@@ -126,7 +126,7 @@ const mapVentaToFrontend = (row) => {
 };
 
 // ============================================
-// GET - OBTENER VENTAS CON FILTROS
+// GET - OBTENER VENTAS CON FILTROS (CORREGIDO)
 // ============================================
 
 const getVentas = async (filtros, userInfo) => {
@@ -149,38 +149,29 @@ const getVentas = async (filtros, userInfo) => {
       return [];
     }
 
+    // 🔥 CONSULTA CORREGIDA: Cada registro de venta es individual
+    // Ya no usamos GROUP BY para no agrupar múltiples ventas del mismo pedido
     let queryText = `
       SELECT 
+        v.id_venta,
+        v.fecha_hora,
+        v.monto_efectivo,
+        v.monto_qr,
+        v.metodo_pago,
+        v.id_usuario,
         p.id_pedido,
         p.codigo_pedido,
-        p.fecha_pedido,
         p.sub_total,
         p.descuento,
         p.total,
-        p.estado_pago,
         p.id_tienda,
+        p.fecha_pedido,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(SUM(v.monto_efectivo), 0) as monto_efectivo,
-        COALESCE(SUM(v.monto_qr), 0) as monto_qr,
-        COALESCE(
-          (SELECT v2.metodo_pago 
-           FROM venta v2 
-           WHERE v2.id_pedido = p.id_pedido 
-           ORDER BY v2.fecha_hora DESC 
-           LIMIT 1),
-          'efectivo'
-        ) as metodo_pago,
         u.usuario
-      FROM pedido p
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON u.id_usuario = (
-        SELECT v2.id_usuario 
-        FROM venta v2 
-        WHERE v2.id_pedido = p.id_pedido 
-        ORDER BY v2.fecha_hora DESC 
-        LIMIT 1
-      )
+      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE t.id_negocio = $1
     `;
@@ -188,6 +179,7 @@ const getVentas = async (filtros, userInfo) => {
     const params = [parseInt(negocioId)];
     let paramIndex = 2;
 
+    // Filtro por tienda
     if (tiendaId && tiendaId !== 'todas') {
       queryText += ` AND p.id_tienda = $${paramIndex}`;
       params.push(parseInt(tiendaId));
@@ -200,6 +192,7 @@ const getVentas = async (filtros, userInfo) => {
       paramIndex++;
     }
 
+    // Filtro por búsqueda
     if (searchTerm && searchTerm.trim() !== '') {
       const searchPattern = `%${searchTerm.trim()}%`;
       queryText += ` AND (
@@ -212,33 +205,18 @@ const getVentas = async (filtros, userInfo) => {
       paramIndex++;
     }
 
+    // Filtro por método de pago
     if (selectedMetodoPago && selectedMetodoPago !== 'all') {
       if (selectedMetodoPago === 'efectivo') {
-        queryText += ` AND EXISTS (
-          SELECT 1 FROM venta v2 
-          WHERE v2.id_pedido = p.id_pedido 
-          AND v2.monto_efectivo IS NOT NULL 
-          AND v2.monto_efectivo > 0
-        )`;
+        queryText += ` AND v.monto_efectivo IS NOT NULL AND v.monto_efectivo > 0`;
       } else if (selectedMetodoPago === 'qr') {
-        queryText += ` AND EXISTS (
-          SELECT 1 FROM venta v2 
-          WHERE v2.id_pedido = p.id_pedido 
-          AND v2.monto_qr IS NOT NULL 
-          AND v2.monto_qr > 0
-        )`;
+        queryText += ` AND v.monto_qr IS NOT NULL AND v.monto_qr > 0`;
       } else if (selectedMetodoPago === 'mixto') {
-        queryText += ` AND EXISTS (
-          SELECT 1 FROM venta v2 
-          WHERE v2.id_pedido = p.id_pedido 
-          AND v2.monto_efectivo IS NOT NULL 
-          AND v2.monto_efectivo > 0 
-          AND v2.monto_qr IS NOT NULL 
-          AND v2.monto_qr > 0
-        )`;
+        queryText += ` AND v.monto_efectivo IS NOT NULL AND v.monto_efectivo > 0 AND v.monto_qr IS NOT NULL AND v.monto_qr > 0`;
       }
     }
 
+    // Filtro por fecha (usa la fecha de la venta, no la del pedido)
     const { dateCondition, params: dateParams, paramIndex: newParamIndex } = buildDateFilter(
       dateFilterType,
       specificDate,
@@ -250,8 +228,11 @@ const getVentas = async (filtros, userInfo) => {
     params.push(...dateParams);
     paramIndex = newParamIndex;
 
-    queryText += ` GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario`;
-    queryText += ` ORDER BY p.fecha_pedido ${sortDirection === 'desc' ? 'DESC' : 'ASC'}`;
+    // Orden por fecha de venta
+    queryText += ` ORDER BY v.fecha_hora ${sortDirection === 'desc' ? 'DESC' : 'ASC'}`;
+
+    console.log("📝 Query ejecutada:", queryText);
+    console.log("📝 Params:", params);
 
     const result = await query(queryText, params);
 
@@ -259,9 +240,12 @@ const getVentas = async (filtros, userInfo) => {
       return [];
     }
 
+    // Convertir cada fila a formato frontend
     const ventas = result.rows.map(row => mapVentaToFrontend(row));
 
+    // Cargar lentes y productos adicionales para cada venta
     for (let venta of ventas) {
+      // Obtener lentes
       const lentesResult = await query(
         `
         SELECT 
@@ -294,6 +278,7 @@ const getVentas = async (filtros, userInfo) => {
         total: parseFloat(l.total_lente || 0)
       }));
 
+      // Obtener productos adicionales
       const materialesResult = await query(
         `
         SELECT 
@@ -342,39 +327,26 @@ const getVentaById = async (id, userInfo) => {
     const result = await query(
       `
       SELECT 
+        v.id_venta,
+        v.fecha_hora,
+        v.monto_efectivo,
+        v.monto_qr,
+        v.metodo_pago,
+        v.id_usuario,
         p.id_pedido,
         p.codigo_pedido,
-        p.fecha_pedido,
         p.sub_total,
         p.descuento,
         p.total,
-        p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(SUM(v.monto_efectivo), 0) as monto_efectivo,
-        COALESCE(SUM(v.monto_qr), 0) as monto_qr,
-        COALESCE(
-          (SELECT v2.metodo_pago 
-           FROM venta v2 
-           WHERE v2.id_pedido = p.id_pedido 
-           ORDER BY v2.fecha_hora DESC 
-           LIMIT 1),
-          'efectivo'
-        ) as metodo_pago,
         u.usuario
-      FROM pedido p
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON u.id_usuario = (
-        SELECT v2.id_usuario 
-        FROM venta v2 
-        WHERE v2.id_pedido = p.id_pedido 
-        ORDER BY v2.fecha_hora DESC 
-        LIMIT 1
-      )
+      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
-      WHERE p.id_pedido = $1 AND t.id_negocio = $2
-      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
+      WHERE v.id_venta = $1 AND t.id_negocio = $2
       `,
       [idNum, parseInt(negocioId)]
     );
@@ -386,9 +358,9 @@ const getVentaById = async (id, userInfo) => {
     const row = result.rows[0];
     
     const venta = {
-      id: row.id_pedido?.toString(),
+      id: row.id_venta?.toString(),
       codigoVenta: row.codigo_pedido,
-      fecha: row.fecha_pedido,
+      fecha: row.fecha_hora,
       usuario: row.usuario || 'Sistema',
       subtotal: parseFloat(row.sub_total || 0),
       descuento: parseFloat(row.descuento || 0),
@@ -403,7 +375,7 @@ const getVentaById = async (id, userInfo) => {
 
     const entregaResult = await query(
       `SELECT id_entrega_pendiente FROM entrega_pendiente WHERE id_pedido = $1`,
-      [idNum]
+      [row.id_pedido]
     );
 
     const idEntrega = entregaResult.rows.length > 0 ? entregaResult.rows[0].id_entrega_pendiente : null;
@@ -438,7 +410,7 @@ const getVentaById = async (id, userInfo) => {
         INNER JOIN entrega_pendiente ep ON edl.id_entrega_pendiente = ep.id_entrega_pendiente
         WHERE ep.id_pedido = $1
       `;
-      lentesParams = [idNum];
+      lentesParams = [row.id_pedido];
     }
 
     const lentesResult = await query(lentesQuery, lentesParams);
@@ -523,7 +495,7 @@ const getVentaById = async (id, userInfo) => {
         INNER JOIN entrega_pendiente ep ON edm.id_entrega_pendiente = ep.id_entrega_pendiente
         WHERE ep.id_pedido = $1
       `;
-      materialesParams = [idNum];
+      materialesParams = [row.id_pedido];
     }
 
     const materialesResult = await query(materialesQuery, materialesParams);
@@ -563,39 +535,26 @@ const getVentasByCodigo = async (codigoVenta, userInfo) => {
 
     let queryText = `
       SELECT 
+        v.id_venta,
+        v.fecha_hora,
+        v.monto_efectivo,
+        v.monto_qr,
+        v.metodo_pago,
+        v.id_usuario,
         p.id_pedido,
         p.codigo_pedido,
-        p.fecha_pedido,
         p.sub_total,
         p.descuento,
         p.total,
-        p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(SUM(v.monto_efectivo), 0) as monto_efectivo,
-        COALESCE(SUM(v.monto_qr), 0) as monto_qr,
-        COALESCE(
-          (SELECT v2.metodo_pago 
-           FROM venta v2 
-           WHERE v2.id_pedido = p.id_pedido 
-           ORDER BY v2.fecha_hora DESC 
-           LIMIT 1),
-          'efectivo'
-        ) as metodo_pago,
         u.usuario
-      FROM pedido p
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON u.id_usuario = (
-        SELECT v2.id_usuario 
-        FROM venta v2 
-        WHERE v2.id_pedido = p.id_pedido 
-        ORDER BY v2.fecha_hora DESC 
-        LIMIT 1
-      )
+      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE p.codigo_pedido ILIKE $1 AND t.id_negocio = $2
-      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
     `;
 
     const params = [`%${codigoVenta}%`, parseInt(negocioId)];
@@ -607,7 +566,7 @@ const getVentasByCodigo = async (codigoVenta, userInfo) => {
       paramIndex++;
     }
 
-    queryText += ` ORDER BY p.fecha_pedido DESC`;
+    queryText += ` ORDER BY v.fecha_hora DESC`;
 
     const result = await query(queryText, params);
 
@@ -632,39 +591,26 @@ const getVentasByCliente = async (clientName, userInfo) => {
 
     let queryText = `
       SELECT 
+        v.id_venta,
+        v.fecha_hora,
+        v.monto_efectivo,
+        v.monto_qr,
+        v.metodo_pago,
+        v.id_usuario,
         p.id_pedido,
         p.codigo_pedido,
-        p.fecha_pedido,
         p.sub_total,
         p.descuento,
         p.total,
-        p.estado_pago,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
-        COALESCE(SUM(v.monto_efectivo), 0) as monto_efectivo,
-        COALESCE(SUM(v.monto_qr), 0) as monto_qr,
-        COALESCE(
-          (SELECT v2.metodo_pago 
-           FROM venta v2 
-           WHERE v2.id_pedido = p.id_pedido 
-           ORDER BY v2.fecha_hora DESC 
-           LIMIT 1),
-          'efectivo'
-        ) as metodo_pago,
         u.usuario
-      FROM pedido p
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
-      LEFT JOIN usuario u ON u.id_usuario = (
-        SELECT v2.id_usuario 
-        FROM venta v2 
-        WHERE v2.id_pedido = p.id_pedido 
-        ORDER BY v2.fecha_hora DESC 
-        LIMIT 1
-      )
+      LEFT JOIN usuario u ON v.id_usuario = u.id_usuario
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE (per.nombre ILIKE $1 OR per.apellido ILIKE $1) AND t.id_negocio = $2
-      GROUP BY p.id_pedido, p.codigo_pedido, p.fecha_pedido, p.sub_total, p.descuento, p.total, p.estado_pago, p.id_tienda, per.nombre, per.apellido, u.usuario
     `;
 
     const params = [`%${clientName}%`, parseInt(negocioId)];
@@ -676,7 +622,7 @@ const getVentasByCliente = async (clientName, userInfo) => {
       paramIndex++;
     }
 
-    queryText += ` ORDER BY p.fecha_pedido DESC`;
+    queryText += ` ORDER BY v.fecha_hora DESC`;
 
     const result = await query(queryText, params);
 
@@ -722,7 +668,7 @@ const getResumenVentas = async (filtros, userInfo) => {
 };
 
 // ============================================
-// GET - RESUMEN POR CLIENTE
+// GET - RESUMEN POR CLIENTE (CORREGIDO)
 // ============================================
 
 const getResumenClientes = async (filtros, userInfo) => {
@@ -740,10 +686,10 @@ const getResumenClientes = async (filtros, userInfo) => {
         COALESCE(SUM(v.monto_efectivo), 0) as total_efectivo,
         COALESCE(SUM(v.monto_qr), 0) as total_qr,
         COALESCE(SUM(p.total), 0) as total_general,
-        COUNT(DISTINCT p.id_pedido) as total_ventas
-      FROM pedido p
+        COUNT(DISTINCT v.id_venta) as total_ventas
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN persona per ON p.id_cliente = per.id_persona
-      LEFT JOIN venta v ON p.id_pedido = v.id_pedido
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
       WHERE t.id_negocio = $1
     `;
@@ -808,7 +754,7 @@ const getResumenClientes = async (filtros, userInfo) => {
 };
 
 // ============================================
-// GET - ESTADÍSTICAS RÁPIDAS
+// GET - ESTADÍSTICAS RÁPIDAS (CORREGIDO)
 // ============================================
 
 const getEstadisticasRapidas = async (tiendaIdFiltro, userInfo) => {
@@ -830,11 +776,12 @@ const getEstadisticasRapidas = async (tiendaIdFiltro, userInfo) => {
 
     let queryText = `
       SELECT 
-        COUNT(*) as total_ventas,
-        COALESCE(SUM(total), 0) as total_monto
-      FROM pedido p
+        COUNT(DISTINCT v.id_venta) as total_ventas,
+        COALESCE(SUM(v.monto_efectivo + v.monto_qr), 0) as total_monto
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
-      WHERE t.id_negocio = $1 AND p.fecha_pedido >= $2
+      WHERE t.id_negocio = $1 AND v.fecha_hora >= $2
     `;
 
     const params = [parseInt(negocioId), startOfMonth.toISOString()];
@@ -853,11 +800,12 @@ const getEstadisticasRapidas = async (tiendaIdFiltro, userInfo) => {
 
     let hoyQuery = `
       SELECT 
-        COUNT(*) as total_ventas,
-        COALESCE(SUM(total), 0) as total_monto
-      FROM pedido p
+        COUNT(DISTINCT v.id_venta) as total_ventas,
+        COALESCE(SUM(v.monto_efectivo + v.monto_qr), 0) as total_monto
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
-      WHERE t.id_negocio = $1 AND p.fecha_pedido >= $2 AND p.fecha_pedido < $3
+      WHERE t.id_negocio = $1 AND v.fecha_hora >= $2 AND v.fecha_hora < $3
     `;
 
     const hoyParams = [parseInt(negocioId), today.toISOString(), new Date(today.getTime() + 86400000).toISOString()];
@@ -950,7 +898,7 @@ const getTiposFiltroFecha = async () => {
 };
 
 // ============================================
-// DELETE - ANULAR VENTA (CON CAJA CORREGIDO)
+// DELETE - ANULAR VENTA (CORREGIDO)
 // ============================================
 
 const anularVenta = async (id, userInfo) => {
@@ -972,30 +920,40 @@ const anularVenta = async (id, userInfo) => {
   try {
     await client.query('BEGIN');
 
-    // 1. VERIFICAR QUE EL PEDIDO EXISTA Y PERTENEZCA AL NEGOCIO
-    const pedidoResult = await client.query(
+    // 1. VERIFICAR QUE LA VENTA EXISTA Y PERTENEZCA AL NEGOCIO
+    const ventaResult = await client.query(
       `
       SELECT 
-        p.id_pedido, 
-        p.id_tienda, 
+        v.id_venta,
+        v.id_pedido,
+        v.monto_efectivo,
+        v.monto_qr,
+        v.fecha_hora,
+        p.id_tienda,
         p.total,
         p.sub_total,
         p.descuento,
         p.id_cliente,
         p.codigo_pedido
-      FROM pedido p
+      FROM venta v
+      INNER JOIN pedido p ON v.id_pedido = p.id_pedido
       INNER JOIN tienda t ON p.id_tienda = t.id_tienda
-      WHERE p.id_pedido = $1 AND t.id_negocio = $2
+      WHERE v.id_venta = $1 AND t.id_negocio = $2
       `,
       [idNum, parseInt(negocioId)]
     );
 
-    if (pedidoResult.rows.length === 0) {
-      throw new Error("Pedido no encontrado o no pertenece al negocio");
+    if (ventaResult.rows.length === 0) {
+      throw new Error("Venta no encontrada o no pertenece al negocio");
     }
 
-    const pedido = pedidoResult.rows[0];
-    const tiendaIdPedido = pedido.id_tienda;
+    const venta = ventaResult.rows[0];
+    const idPedido = venta.id_pedido;
+    const tiendaIdPedido = venta.id_tienda;
+    const totalEfectivoVenta = parseFloat(venta.monto_efectivo || 0);
+    const totalQRVenta = parseFloat(venta.monto_qr || 0);
+
+    console.log(`💰 Venta ${venta.codigo_pedido} - Efectivo: ${totalEfectivoVenta} Bs, QR: ${totalQRVenta} Bs`);
 
     // 2. OBTENER LA ENTREGA PENDIENTE
     const entregaResult = await client.query(
@@ -1004,7 +962,7 @@ const anularVenta = async (id, userInfo) => {
       FROM entrega_pendiente 
       WHERE id_pedido = $1
       `,
-      [idNum]
+      [idPedido]
     );
 
     const idEntrega = entregaResult.rows.length > 0 ? entregaResult.rows[0].id_entrega_pendiente : null;
@@ -1095,163 +1053,118 @@ const anularVenta = async (id, userInfo) => {
     const caja = cajaResult.rows[0];
     const idCaja = caja.id_caja;
 
-    // 8. OBTENER EL TOTAL DE EFECTIVO PAGADO EN LA VENTA Y LOS IDS DE LAS VENTAS
-    const pagosResult = await client.query(
-      `
-      SELECT 
-        id_venta,
-        COALESCE(monto_efectivo, 0) as monto_efectivo,
-        COALESCE(monto_qr, 0) as monto_qr
-      FROM venta
-      WHERE id_pedido = $1
-      `,
-      [idNum]
+    // 8. OBTENER EL TOTAL ACTUAL DE LA CAJA
+    const cajaActual = await client.query(
+      `SELECT total FROM caja WHERE id_caja = $1`,
+      [idCaja]
     );
+    const totalActual = parseFloat(cajaActual.rows[0]?.total || 0);
 
-    // Si no hay pagos, la venta no existe o ya fue anulada
-    if (pagosResult.rows.length === 0) {
-      throw new Error("No se encontraron pagos para esta venta");
-    }
+    // 9. SI HAY EFECTIVO QUE DEVOLVER, RESTAR DE LA CAJA
+    if (totalEfectivoVenta > 0) {
+      const nuevoTotal = Math.max(0, totalActual - totalEfectivoVenta);
 
-    // Sumar todos los montos de todas las transacciones de venta
-    let totalEfectivoVenta = 0;
-    let totalQRVenta = 0;
-    const idsVenta = [];
+      console.log(`💰 Caja: total actual ${totalActual} Bs, restando ${totalEfectivoVenta} Bs = ${nuevoTotal} Bs`);
 
-    for (const row of pagosResult.rows) {
-      totalEfectivoVenta += parseFloat(row.monto_efectivo || 0);
-      totalQRVenta += parseFloat(row.monto_qr || 0);
-      if (row.id_venta) {
-        idsVenta.push(row.id_venta);
-      }
-    }
-
-    console.log(`💰 Total efectivo a reembolsar: ${totalEfectivoVenta} Bs`);
-    console.log(`💰 Total QR a reembolsar: ${totalQRVenta} Bs`);
-
-    // 9. OBTENER LAS TRANSACCIONES DE CAJA RELACIONADAS CON ESTA VENTA
-    // Buscar por id_venta en lugar de id_venta (que puede ser NULL)
-    if (idsVenta.length > 0) {
-      // Crear placeholders para los IDs de venta
-      const placeholders = idsVenta.map((_, idx) => `$${idx + 1}`).join(', ');
-      
-      const transaccionesResult = await client.query(
+      // Actualizar el total de la caja
+      await client.query(
         `
-        SELECT 
-          id_transaccion_caja,
+        UPDATE caja 
+        SET total = $1 
+        WHERE id_caja = $2
+        `,
+        [nuevoTotal, idCaja]
+      );
+
+      // Registrar el egreso por anulación
+      await client.query(
+        `
+        INSERT INTO transaccion_caja (
+          id_caja,
+          id_usuario,
+          monto_nuevo,
+          monto_anterior,
           monto,
           tipo_movimiento,
-          monto_nuevo,
-          monto_anterior
-        FROM transaccion_caja
-        WHERE id_venta IN (${placeholders}) AND id_caja = $${idsVenta.length + 1}
-        ORDER BY fecha DESC
+          descripcion,
+          id_venta,
+          fecha
+        )
+        VALUES (
+          $1, 
+          $2, 
+          $3,
+          $4,
+          $5,
+          'egreso',
+          $6,
+          $7,
+          TIMEZONE('America/La_Paz', NOW())
+        )
         `,
-        [...idsVenta, idCaja]
+        [
+          idCaja,
+          userId,
+          nuevoTotal,
+          totalActual,
+          totalEfectivoVenta,
+          `ANULACIÓN - Devolución efectivo Venta ${venta.codigo_pedido}`,
+          idNum
+        ]
       );
 
-      console.log(`📊 Encontradas ${transaccionesResult.rows.length} transacciones de caja para eliminar`);
-
-      // 10. SI HAY EFECTIVO QUE DEVOLVER, RESTAR DE LA CAJA
-      if (totalEfectivoVenta > 0) {
-        // Obtener el total actual de la caja
-        const cajaActual = await client.query(
-          `SELECT total FROM caja WHERE id_caja = $1`,
-          [idCaja]
-        );
-
-        const totalActual = parseFloat(cajaActual.rows[0]?.total || 0);
-        
-        // Calcular el nuevo total restando el efectivo que se devuelve
-        const nuevoTotal = Math.max(0, totalActual - totalEfectivoVenta);
-
-        console.log(`💰 Caja: total actual ${totalActual} Bs, restando ${totalEfectivoVenta} Bs = ${nuevoTotal} Bs`);
-
-        // Actualizar el total de la caja
-        await client.query(
-          `
-          UPDATE caja 
-          SET total = $1 
-          WHERE id_caja = $2
-          `,
-          [nuevoTotal, idCaja]
-        );
-
-        // Registrar el egreso por anulación
-        await client.query(
-          `
-          INSERT INTO transaccion_caja (
-            id_caja,
-            id_usuario,
-            monto_nuevo,
-            monto_anterior,
-            monto,
-            tipo_movimiento,
-            descripcion,
-            id_venta,
-            fecha
-          )
-          VALUES (
-            $1, 
-            $2, 
-            $3,
-            $4,
-            $5,
-            'egreso',
-            $6,
-            NULL,
-            TIMEZONE('America/La_Paz', NOW())
-          )
-          `,
-          [
-            idCaja,
-            userId,
-            nuevoTotal,
-            totalActual,
-            totalEfectivoVenta,
-            `ANULACIÓN - Devolución efectivo Venta ${pedido.codigo_pedido}`
-          ]
-        );
-
-        console.log(`✅ Registrado egreso de ${totalEfectivoVenta} Bs por anulación`);
-      }
-
-      // 11. ELIMINAR LAS TRANSACCIONES ORIGINALES DE CAJA
-      await client.query(
-        `DELETE FROM transaccion_caja WHERE id_venta IN (${placeholders}) AND id_caja = $${idsVenta.length + 1}`,
-        [...idsVenta, idCaja]
-      );
-      console.log(`✅ Eliminadas transacciones de caja originales`);
+      console.log(`✅ Registrado egreso de ${totalEfectivoVenta} Bs por anulación`);
     }
 
-    // 12. ELIMINAR REGISTROS DE VENTA
+    // 10. ELIMINAR LA TRANSACCIÓN ORIGINAL DE CAJA (si existe)
     await client.query(
-      `DELETE FROM venta WHERE id_pedido = $1`,
+      `DELETE FROM transaccion_caja WHERE id_venta = $1 AND id_caja = $2`,
+      [idNum, idCaja]
+    );
+    console.log(`✅ Eliminada transacción de caja original`);
+
+    // 11. ELIMINAR EL REGISTRO DE VENTA
+    await client.query(
+      `DELETE FROM venta WHERE id_venta = $1`,
       [idNum]
     );
 
-    // 13. ELIMINAR PAGO PENDIENTE
-    await client.query(
-      `DELETE FROM pago_pendiente WHERE id_pedido = $1`,
-      [idNum]
+    // 12. VERIFICAR SI QUEDAN MÁS VENTAS PARA ESTE PEDIDO
+    const ventasRestantes = await client.query(
+      `SELECT COUNT(*) as total FROM venta WHERE id_pedido = $1`,
+      [idPedido]
     );
 
-    // 14. ELIMINAR EL PEDIDO
-    await client.query(
-      `DELETE FROM pedido WHERE id_pedido = $1`,
-      [idNum]
-    );
+    const restantes = parseInt(ventasRestantes.rows[0]?.total || 0);
+
+    // 13. SI NO QUEDAN MÁS VENTAS, ELIMINAR EL PEDIDO
+    if (restantes === 0) {
+      // Eliminar pago pendiente
+      await client.query(
+        `DELETE FROM pago_pendiente WHERE id_pedido = $1`,
+        [idPedido]
+      );
+
+      // Eliminar el pedido
+      await client.query(
+        `DELETE FROM pedido WHERE id_pedido = $1`,
+        [idPedido]
+      );
+      console.log(`✅ Pedido ${venta.codigo_pedido} eliminado (sin ventas restantes)`);
+    } else {
+      console.log(`ℹ️ Quedan ${restantes} ventas para el pedido ${venta.codigo_pedido}, no se elimina`);
+    }
 
     await client.query('COMMIT');
 
-    console.log(`✅ Venta ${pedido.codigo_pedido} anulada correctamente por ${username}`);
+    console.log(`✅ Venta ${venta.codigo_pedido} anulada correctamente por ${username}`);
     console.log(`💰 Efectivo devuelto: ${totalEfectivoVenta} Bs`);
     console.log(`💰 QR devuelto: ${totalQRVenta} Bs (no afecta caja)`);
 
     return {
       success: true,
-      message: `Venta ${pedido.codigo_pedido} anulada correctamente`,
-      codigoVenta: pedido.codigo_pedido,
+      message: `Venta ${venta.codigo_pedido} anulada correctamente`,
+      codigoVenta: venta.codigo_pedido,
       efectivoDevuelto: totalEfectivoVenta,
       qrDevuelto: totalQRVenta
     };
