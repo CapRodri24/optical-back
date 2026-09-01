@@ -36,7 +36,5 @@ router.get("/:id/medidas", clientesController.getClienteMedidas);
 router.post("/:id/medidas", clientesController.saveClienteMedidas);
 router.delete("/:id/medidas", clientesController.deleteClienteMedidas);
 
-// Rutas de ventas de clientes
-router.get("/:id/ventas", clientesController.getClienteVentas);
 
 module.exports = router;
