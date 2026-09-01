@@ -130,6 +130,10 @@ const mapVentaToFrontend = (row) => {
 // GET - OBTENER VENTAS CON FILTROS (CORREGIDO)
 // ============================================
 
+// ============================================
+// GET - OBTENER VENTAS CON FILTROS (CORREGIDO)
+// ============================================
+
 const getVentas = async (filtros, userInfo) => {
   try {
     const {
@@ -244,8 +248,17 @@ const getVentas = async (filtros, userInfo) => {
     // Convertir cada fila a formato frontend
     const ventas = result.rows.map(row => mapVentaToFrontend(row));
 
-    // Cargar lentes y productos adicionales para cada venta
+    // 🔥 Cargar lentes y productos adicionales para cada venta
     for (let venta of ventas) {
+      // Obtener el id_pedido desde la venta
+      const pedidoResult = await query(
+        `SELECT id_pedido FROM venta WHERE id_venta = $1`,
+        [parseInt(venta.id)]
+      );
+      
+      if (pedidoResult.rows.length === 0) continue;
+      const idPedido = pedidoResult.rows[0].id_pedido;
+
       // Obtener lentes
       const lentesResult = await query(
         `
@@ -266,7 +279,7 @@ const getVentas = async (filtros, userInfo) => {
         LEFT JOIN material m3 ON l.id_estuche = m3.id_material
         WHERE ep.id_pedido = $1
         `,
-        [parseInt(venta.id)]
+        [idPedido]
       );
 
       venta.lentes = lentesResult.rows.map(l => ({
@@ -291,7 +304,7 @@ const getVentas = async (filtros, userInfo) => {
         INNER JOIN entrega_pendiente ep ON edm.id_entrega_pendiente = ep.id_entrega_pendiente
         WHERE ep.id_pedido = $1
         `,
-        [parseInt(venta.id)]
+        [idPedido]
       );
 
       venta.productosAdicionales = materialesResult.rows.map(m => ({
