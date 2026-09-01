@@ -115,6 +115,7 @@ const mapVentaToFrontend = (row) => {
     metodoPago: row.metodo_pago || 'efectivo',
     subtotal: parseFloat(row.sub_total || 0),
     descuento: parseFloat(row.descuento || 0),
+    motivoDescuento: row.motivo_descripcion || '', // <-- NUEVO CAMPO
     total: parseFloat(row.total || 0),
     clientName: row.cliente_nombre || 'Cliente',
     tiendaId: row.id_tienda?.toString(),
@@ -150,7 +151,6 @@ const getVentas = async (filtros, userInfo) => {
     }
 
     // 🔥 CONSULTA CORREGIDA: Cada registro de venta es individual
-    // Ya no usamos GROUP BY para no agrupar múltiples ventas del mismo pedido
     let queryText = `
       SELECT 
         v.id_venta,
@@ -163,6 +163,7 @@ const getVentas = async (filtros, userInfo) => {
         p.codigo_pedido,
         p.sub_total,
         p.descuento,
+        p.motivo_descripcion,
         p.total,
         p.id_tienda,
         p.fecha_pedido,
@@ -337,6 +338,7 @@ const getVentaById = async (id, userInfo) => {
         p.codigo_pedido,
         p.sub_total,
         p.descuento,
+        p.motivo_descripcion,
         p.total,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
@@ -364,6 +366,7 @@ const getVentaById = async (id, userInfo) => {
       usuario: row.usuario || 'Sistema',
       subtotal: parseFloat(row.sub_total || 0),
       descuento: parseFloat(row.descuento || 0),
+      motivoDescuento: row.motivo_descripcion || '', // <-- NUEVO CAMPO
       total: parseFloat(row.total || 0),
       metodoPago: row.metodo_pago || 'efectivo',
       clientName: row.cliente_nombre || 'Cliente',
@@ -418,6 +421,17 @@ const getVentaById = async (id, userInfo) => {
     lentesResult.rows.forEach((l) => {
       const grupo = `Lente ${l.tipo_lente || 'No especificado'}`;
       const totalLente = parseFloat(l.total_lente || 0);
+      
+      // Título del lente
+      venta.items.push({
+        nombre: `Lente ${l.tipo_lente || 'No especificado'}`,
+        cantidad: 1,
+        precioUnitario: 0,
+        subtotal: 0,
+        esLente: true,
+        grupo: grupo,
+        esTituloLente: true // <-- MARCADOR PARA TÍTULO
+      });
       
       if (l.frame) {
         venta.items.push({
@@ -500,6 +514,19 @@ const getVentaById = async (id, userInfo) => {
 
     const materialesResult = await query(materialesQuery, materialesParams);
 
+    if (materialesResult.rows.length > 0) {
+      // Agregar título de productos adicionales
+      venta.items.push({
+        nombre: 'Productos Adicionales',
+        cantidad: 1,
+        precioUnitario: 0,
+        subtotal: 0,
+        esLente: false,
+        grupo: 'Productos Adicionales',
+        esTituloLente: true // <-- MARCADOR PARA TÍTULO
+      });
+    }
+
     materialesResult.rows.forEach(m => {
       const totalMaterial = parseFloat(m.total_material || 0);
       const cantidad = parseInt(m.cantidad || 1);
@@ -545,6 +572,7 @@ const getVentasByCodigo = async (codigoVenta, userInfo) => {
         p.codigo_pedido,
         p.sub_total,
         p.descuento,
+        p.motivo_descripcion,
         p.total,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
@@ -601,6 +629,7 @@ const getVentasByCliente = async (clientName, userInfo) => {
         p.codigo_pedido,
         p.sub_total,
         p.descuento,
+        p.motivo_descripcion,
         p.total,
         p.id_tienda,
         per.nombre || ' ' || per.apellido as cliente_nombre,
@@ -933,6 +962,7 @@ const anularVenta = async (id, userInfo) => {
         p.total,
         p.sub_total,
         p.descuento,
+        p.motivo_descripcion,
         p.id_cliente,
         p.codigo_pedido
       FROM venta v

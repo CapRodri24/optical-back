@@ -201,7 +201,7 @@ const searchProductos = async (term, userInfo) => {
 };
 
 // ============================================
-// GENERAR CÓDIGO DE VENTA POR TIENDA Y DÍA
+// GENERAR CÓDIGO DE VENTA POR TIENDA Y DÍA (FORMATO DDMMYY)
 // ============================================
 
 const generarCodigoVenta = async (tiendaId) => {
@@ -209,7 +209,8 @@ const generarCodigoVenta = async (tiendaId) => {
     const now = new Date();
     const dia = String(now.getDate()).padStart(2, '0');
     const mes = String(now.getMonth() + 1).padStart(2, '0');
-    const diaMes = dia + mes;
+    const anio = String(now.getFullYear()).slice(-2); // Últimos 2 dígitos del año (ej: 2026 → 26)
+    const diaMesAnio = dia + mes + anio; // Ej: 310826
     
     const result = await query(
       `
@@ -226,19 +227,25 @@ const generarCodigoVenta = async (tiendaId) => {
     let numero = 1;
     if (result.rows.length > 0) {
       const ultimoCodigo = result.rows[0].codigo_pedido;
+      // Buscar el número al final del código (después del último guion)
       const partes = ultimoCodigo.split('-');
-      if (partes.length === 3) {
-        const ultimoNumero = parseInt(partes[2]);
+      if (partes.length >= 2) {
+        const ultimoNumero = parseInt(partes[partes.length - 1]);
         if (!isNaN(ultimoNumero)) {
           numero = ultimoNumero + 1;
         }
       }
     }
     
-    return `VTA-${diaMes}-${numero}`;
+    return `VTA${diaMesAnio}-${numero}`; // Formato: VTA310826-1
   } catch (error) {
     console.error("Error generando código de venta:", error);
-    return `VTA-${Date.now()}`;
+    // Fallback con timestamp
+    const now = new Date();
+    const dia = String(now.getDate()).padStart(2, '0');
+    const mes = String(now.getMonth() + 1).padStart(2, '0');
+    const anio = String(now.getFullYear()).slice(-2);
+    return `VTA${dia}${mes}${anio}-${Date.now()}`;
   }
 };
 
@@ -380,6 +387,7 @@ const registrarVenta = async (ventaData, userInfo) => {
     montoPagado,
     subtotal,
     descuento,
+    motivoDescuento,
     metodoPago,
     pagoEfectivo,
     pagoQR,
@@ -391,6 +399,7 @@ const registrarVenta = async (ventaData, userInfo) => {
   console.log("📝 registrarVenta - tiendaId:", tiendaId, "negocioId:", negocioId);
   console.log("📝 Cantidad de lentes:", lentes?.length || 0);
   console.log("📝 Cantidad de productos:", productos?.length || 0);
+  console.log("📝 Motivo descuento:", motivoDescuento || "Sin motivo");
 
   try {
     // 1. Generar código de venta
@@ -469,8 +478,9 @@ const registrarVenta = async (ventaData, userInfo) => {
         sub_total,
         descuento,
         total,
-        estado_pago
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        estado_pago,
+        motivo_descripcion
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id_pedido
       `,
       [
@@ -480,7 +490,8 @@ const registrarVenta = async (ventaData, userInfo) => {
         parseFloat(subtotal || 0),
         parseFloat(descuento || 0),
         parseFloat(total || 0),
-        estadoPago
+        estadoPago,
+        motivoDescuento || null
       ]
     );
 
@@ -800,6 +811,7 @@ const getVentasByClient = async (clientId, userInfo) => {
         p.sub_total,
         p.descuento,
         p.estado_pago,
+        p.motivo_descripcion,
         COALESCE(
           (SELECT SUM(v.monto_pagado) FROM venta v WHERE v.id_pedido = p.id_pedido),
           0
@@ -819,6 +831,7 @@ const getVentasByClient = async (clientId, userInfo) => {
       total: parseFloat(row.total || 0),
       subtotal: parseFloat(row.sub_total || 0),
       descuento: parseFloat(row.descuento || 0),
+      motivoDescuento: row.motivo_descripcion || '',
       estadoPago: row.estado_pago,
       montoPagado: parseFloat(row.monto_pagado || 0)
     }));
