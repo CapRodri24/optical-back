@@ -662,6 +662,186 @@ const deleteTipoCliente = async (req, res) => {
   }
 };
 
+// ============================================
+// ZONAS DE CLIENTE
+// ============================================
+
+const getZonasCliente = async (req, res) => {
+  try {
+    const { negocioId } = req.query;
+
+    console.log("🔍 getZonasCliente - negocioId:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio requerido"
+      });
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio inválido"
+      });
+    }
+
+    const zonas = await clientesService.getZonasCliente(negocioIdNum);
+
+    res.json({
+      success: true,
+      data: zonas
+    });
+  } catch (error) {
+    console.error("Error en getZonasCliente controller:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error al obtener zonas de cliente"
+    });
+  }
+};
+
+const createZonaCliente = async (req, res) => {
+  try {
+    const { nombre, negocioId } = req.body;
+
+    console.log("🔍 createZonaCliente - nombre:", nombre, "negocioId:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio requerido"
+      });
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio inválido"
+      });
+    }
+
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Nombre de la zona es requerido"
+      });
+    }
+
+    const zona = await clientesService.createZonaCliente(nombre.trim(), negocioIdNum);
+
+    res.status(201).json({
+      success: true,
+      message: "Zona de cliente creada exitosamente",
+      data: zona
+    });
+  } catch (error) {
+    console.error("Error en createZonaCliente controller:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Error al crear la zona de cliente"
+    });
+  }
+};
+
+const updateZonaCliente = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, negocioId } = req.body;
+
+    console.log("🔍 updateZonaCliente - id:", id, "nombre:", nombre, "negocioId:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio requerido"
+      });
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio inválido"
+      });
+    }
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de zona inválido"
+      });
+    }
+
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Nombre de la zona es requerido"
+      });
+    }
+
+    const zona = await clientesService.updateZonaCliente(id, nombre.trim(), negocioIdNum);
+
+    res.json({
+      success: true,
+      message: "Zona de cliente actualizada exitosamente",
+      data: zona
+    });
+  } catch (error) {
+    console.error("Error en updateZonaCliente controller:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Error al actualizar la zona de cliente"
+    });
+  }
+};
+
+const deleteZonaCliente = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { negocioId } = req.query;
+
+    console.log("🔍 deleteZonaCliente - id:", id, "negocioId:", negocioId);
+
+    if (!negocioId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio requerido"
+      });
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de negocio inválido"
+      });
+    }
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de zona inválido"
+      });
+    }
+
+    await clientesService.deleteZonaCliente(id, negocioIdNum);
+
+    res.json({
+      success: true,
+      message: "Zona de cliente eliminada exitosamente"
+    });
+  } catch (error) {
+    console.error("Error en deleteZonaCliente controller:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Error al eliminar la zona de cliente"
+    });
+  }
+};
+
 module.exports = {
   getClientes,
   searchClientes,
@@ -676,5 +856,9 @@ module.exports = {
   getTiposCliente,
   createTipoCliente,
   updateTipoCliente,
-  deleteTipoCliente
+  deleteTipoCliente,
+  getZonasCliente,
+  createZonaCliente,
+  updateZonaCliente,
+  deleteZonaCliente
 };

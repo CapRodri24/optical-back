@@ -13,6 +13,12 @@ router.post("/tipos", clientesController.createTipoCliente);
 router.put("/tipos/:id", clientesController.updateTipoCliente);
 router.delete("/tipos/:id", clientesController.deleteTipoCliente);
 
+// Rutas de zonas de cliente
+router.get("/zonas", clientesController.getZonasCliente);
+router.post("/zonas", clientesController.createZonaCliente);
+router.put("/zonas/:id", clientesController.updateZonaCliente);
+router.delete("/zonas/:id", clientesController.deleteZonaCliente);
+
 // ============================================
 // RUTAS DINÁMICAS (DEBEN IR AL FINAL)
 // ============================================

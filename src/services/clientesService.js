@@ -23,13 +23,16 @@ const getClientes = async (filtros) => {
         p.nombre,
         p.apellido as apellidos,
         p.celular,
-        p.fecha_nacimiento as "createdAt",
+        TO_CHAR(p.fecha_nacimiento, 'YYYY-MM-DD') as fecha_nacimiento,
         pn.carnet_persona as carnet,
         tc.nombre_tipo_cliente as tipo_cliente,
-        tc.id_tipo_cliente as tipo_cliente_id
+        tc.id_tipo_cliente as tipo_cliente_id,
+        cz.nombre_zona as zona_cliente,
+        cz.id_cliente_zona as zona_cliente_id
       FROM persona p
       INNER JOIN persona_negocio pn ON p.id_persona = pn.id_persona
       LEFT JOIN tipo_cliente tc ON p.id_tipo_cliente = tc.id_tipo_cliente
+      LEFT JOIN cliente_zona cz ON p.id_cliente_zona = cz.id_cliente_zona
       WHERE pn.id_negocio = $1
       AND p.estado = 'activo'
     `;
@@ -81,12 +84,14 @@ const searchClientes = async (term, negocioId) => {
         p.nombre,
         p.apellido as apellidos,
         p.celular,
-        p.fecha_nacimiento as "createdAt",
+        TO_CHAR(p.fecha_nacimiento, 'YYYY-MM-DD') as fecha_nacimiento,
         pn.carnet_persona as carnet,
-        tc.nombre_tipo_cliente as tipo_cliente
+        tc.nombre_tipo_cliente as tipo_cliente,
+        cz.nombre_zona as zona_cliente
       FROM persona p
       INNER JOIN persona_negocio pn ON p.id_persona = pn.id_persona
       LEFT JOIN tipo_cliente tc ON p.id_tipo_cliente = tc.id_tipo_cliente
+      LEFT JOIN cliente_zona cz ON p.id_cliente_zona = cz.id_cliente_zona
       WHERE pn.id_negocio = $1
       AND p.estado = 'activo'
       AND (
@@ -131,13 +136,16 @@ const getClienteById = async (id, negocioId) => {
         p.nombre,
         p.apellido as apellidos,
         p.celular,
-        p.fecha_nacimiento as "createdAt",
+        TO_CHAR(p.fecha_nacimiento, 'YYYY-MM-DD') as fecha_nacimiento,
         pn.carnet_persona as carnet,
         tc.nombre_tipo_cliente as tipo_cliente,
-        tc.id_tipo_cliente as tipo_cliente_id
+        tc.id_tipo_cliente as tipo_cliente_id,
+        cz.nombre_zona as zona_cliente,
+        cz.id_cliente_zona as zona_cliente_id
       FROM persona p
       INNER JOIN persona_negocio pn ON p.id_persona = pn.id_persona
       LEFT JOIN tipo_cliente tc ON p.id_tipo_cliente = tc.id_tipo_cliente
+      LEFT JOIN cliente_zona cz ON p.id_cliente_zona = cz.id_cliente_zona
       WHERE p.id_persona = $1 AND pn.id_negocio = $2
       AND p.estado = 'activo'
       `,
@@ -151,11 +159,14 @@ const getClienteById = async (id, negocioId) => {
   }
 };
 
+
 const createCliente = async (data, negocioId) => {
   try {
-    const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId } = data;
+    // IMPORTANTE: El frontend envía 'fechaNacimiento', 'tipoClienteId', 'zonaClienteId'
+    const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId, zonaClienteId } = data;
 
     console.log("🔍 createCliente service - nombre:", nombre, "negocioId:", negocioId);
+    console.log("📦 createCliente - data recibida:", data);
 
     const negocioIdNum = parseInt(negocioId);
     if (isNaN(negocioIdNum)) {
@@ -185,14 +196,27 @@ const createCliente = async (data, negocioId) => {
       tipoClienteIdFinal = tipoClienteId;
     }
 
+    // Verificar que la zona de cliente existe y pertenece al negocio (si se proporcionó)
+    let zonaClienteIdFinal = null;
+    if (zonaClienteId) {
+      const zonaResult = await query(
+        'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
+        [zonaClienteId, negocioIdNum, 'activo']
+      );
+      if (zonaResult.rows.length === 0) {
+        throw new Error("La zona de cliente no existe o no pertenece a este negocio");
+      }
+      zonaClienteIdFinal = zonaClienteId;
+    }
+
     // Crear la persona
     const personaResult = await query(
       `
-      INSERT INTO persona (nombre, apellido, celular, fecha_nacimiento, id_tipo_cliente)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO persona (nombre, apellido, celular, fecha_nacimiento, id_tipo_cliente, id_cliente_zona)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id_persona
       `,
-      [nombre.trim(), apellidos.trim(), celular.trim(), fechaNacimiento || null, tipoClienteIdFinal]
+      [nombre.trim(), apellidos.trim(), celular.trim(), fechaNacimiento || null, tipoClienteIdFinal, zonaClienteIdFinal]
     );
 
     const idPersona = personaResult.rows[0].id_persona;
@@ -212,9 +236,11 @@ const createCliente = async (data, negocioId) => {
 
 const updateCliente = async (id, data, negocioId) => {
   try {
-    const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId } = data;
+    // IMPORTANTE: El frontend envía 'fechaNacimiento', 'tipoClienteId', 'zonaClienteId'
+    const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId, zonaClienteId } = data;
 
     console.log("🔍 updateCliente service - id:", id, "negocioId:", negocioId);
+    console.log("📦 updateCliente - data recibida:", data);
 
     const clienteId = parseInt(id);
     if (isNaN(clienteId)) {
@@ -256,6 +282,19 @@ const updateCliente = async (id, data, negocioId) => {
       tipoClienteIdFinal = tipoClienteId;
     }
 
+    // Verificar que la zona de cliente existe y pertenece al negocio
+    let zonaClienteIdFinal = null;
+    if (zonaClienteId) {
+      const zonaResult = await query(
+        'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
+        [zonaClienteId, negocioIdNum, 'activo']
+      );
+      if (zonaResult.rows.length === 0) {
+        throw new Error("La zona de cliente no existe o no pertenece a este negocio");
+      }
+      zonaClienteIdFinal = zonaClienteId;
+    }
+
     // Actualizar la persona
     await query(
       `
@@ -265,10 +304,11 @@ const updateCliente = async (id, data, negocioId) => {
         apellido = $2,
         celular = $3,
         fecha_nacimiento = $4,
-        id_tipo_cliente = $5
-      WHERE id_persona = $6
+        id_tipo_cliente = $5,
+        id_cliente_zona = $6
+      WHERE id_persona = $7
       `,
-      [nombre.trim(), apellidos.trim(), celular.trim(), fechaNacimiento || null, tipoClienteIdFinal, clienteId]
+      [nombre.trim(), apellidos.trim(), celular.trim(), fechaNacimiento || null, tipoClienteIdFinal, zonaClienteIdFinal, clienteId]
     );
 
     // Actualizar el carnet en persona_negocio
@@ -808,6 +848,156 @@ const deleteTipoCliente = async (id, negocioId) => {
   }
 };
 
+// ============================================
+// ZONAS DE CLIENTE
+// ============================================
+
+const getZonasCliente = async (negocioId) => {
+  try {
+    console.log("🔍 getZonasCliente service - negocioId:", negocioId);
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      console.warn("Invalid negocioId:", negocioId);
+      return [];
+    }
+
+    const result = await query(
+      'SELECT id_cliente_zona as id, nombre_zona as nombre FROM cliente_zona WHERE id_negocio = $1 AND estado = $2 ORDER BY nombre_zona',
+      [negocioIdNum, 'activo']
+    );
+
+    return result.rows || [];
+  } catch (error) {
+    console.error("Error en getZonasCliente service:", error);
+    return [];
+  }
+};
+
+const createZonaCliente = async (nombre, negocioId) => {
+  try {
+    console.log("🔍 createZonaCliente service - nombre:", nombre, "negocioId:", negocioId);
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      throw new Error("ID de negocio inválido");
+    }
+
+    // Verificar que no exista una zona con el mismo nombre en el negocio
+    const existing = await query(
+      'SELECT id_cliente_zona FROM cliente_zona WHERE id_negocio = $1 AND nombre_zona = $2 AND estado = $3',
+      [negocioIdNum, nombre, 'activo']
+    );
+
+    if (existing.rows.length > 0) {
+      throw new Error("Ya existe una zona de cliente con este nombre");
+    }
+
+    const result = await query(
+      'INSERT INTO cliente_zona (nombre_zona, id_negocio) VALUES ($1, $2) RETURNING id_cliente_zona as id, nombre_zona as nombre',
+      [nombre, negocioIdNum]
+    );
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error en createZonaCliente service:", error);
+    throw new Error(error.message || "Error al crear la zona de cliente");
+  }
+};
+
+const updateZonaCliente = async (id, nombre, negocioId) => {
+  try {
+    console.log("🔍 updateZonaCliente service - id:", id, "nombre:", nombre, "negocioId:", negocioId);
+
+    const zonaId = parseInt(id);
+    if (isNaN(zonaId)) {
+      throw new Error("ID de zona inválido");
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      throw new Error("ID de negocio inválido");
+    }
+
+    // Verificar que la zona existe y pertenece al negocio
+    const existing = await query(
+      'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
+      [zonaId, negocioIdNum, 'activo']
+    );
+
+    if (existing.rows.length === 0) {
+      throw new Error("Zona de cliente no encontrada");
+    }
+
+    // Verificar que no exista otra zona con el mismo nombre
+    const duplicate = await query(
+      'SELECT id_cliente_zona FROM cliente_zona WHERE id_negocio = $1 AND nombre_zona = $2 AND id_cliente_zona != $3 AND estado = $4',
+      [negocioIdNum, nombre, zonaId, 'activo']
+    );
+
+    if (duplicate.rows.length > 0) {
+      throw new Error("Ya existe una zona de cliente con este nombre");
+    }
+
+    const result = await query(
+      'UPDATE cliente_zona SET nombre_zona = $1 WHERE id_cliente_zona = $2 RETURNING id_cliente_zona as id, nombre_zona as nombre',
+      [nombre, zonaId]
+    );
+
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error en updateZonaCliente service:", error);
+    throw new Error(error.message || "Error al actualizar la zona de cliente");
+  }
+};
+
+const deleteZonaCliente = async (id, negocioId) => {
+  try {
+    console.log("🔍 deleteZonaCliente service - id:", id, "negocioId:", negocioId);
+
+    const zonaId = parseInt(id);
+    if (isNaN(zonaId)) {
+      throw new Error("ID de zona inválido");
+    }
+
+    const negocioIdNum = parseInt(negocioId);
+    if (isNaN(negocioIdNum)) {
+      throw new Error("ID de negocio inválido");
+    }
+
+    // Verificar que la zona existe y pertenece al negocio
+    const existing = await query(
+      'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
+      [zonaId, negocioIdNum, 'activo']
+    );
+
+    if (existing.rows.length === 0) {
+      throw new Error("Zona de cliente no encontrada");
+    }
+
+    // Verificar que no haya clientes usando esta zona
+    const clientesUsing = await query(
+      'SELECT COUNT(*) as count FROM persona WHERE id_cliente_zona = $1',
+      [zonaId]
+    );
+
+    if (parseInt(clientesUsing.rows[0].count) > 0) {
+      throw new Error("No se puede eliminar la zona porque hay clientes que la usan");
+    }
+
+    // Eliminación lógica (cambiar estado)
+    await query(
+      'UPDATE cliente_zona SET estado = $1 WHERE id_cliente_zona = $2',
+      ['eliminado', zonaId]
+    );
+
+    return true;
+  } catch (error) {
+    console.error("Error en deleteZonaCliente service:", error);
+    throw new Error(error.message || "Error al eliminar la zona de cliente");
+  }
+};
+
 module.exports = {
   getClientes,
   searchClientes,
@@ -822,5 +1012,9 @@ module.exports = {
   getTiposCliente,
   createTipoCliente,
   updateTipoCliente,
-  deleteTipoCliente
+  deleteTipoCliente,
+  getZonasCliente,
+  createZonaCliente,
+  updateZonaCliente,
+  deleteZonaCliente
 };
