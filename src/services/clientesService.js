@@ -159,10 +159,8 @@ const getClienteById = async (id, negocioId) => {
   }
 };
 
-
 const createCliente = async (data, negocioId) => {
   try {
-    // IMPORTANTE: El frontend envía 'fechaNacimiento', 'tipoClienteId', 'zonaClienteId'
     const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId, zonaClienteId } = data;
 
     console.log("🔍 createCliente service - nombre:", nombre, "negocioId:", negocioId);
@@ -173,7 +171,6 @@ const createCliente = async (data, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el carnet no exista en el negocio
     const existing = await query(
       'SELECT id_persona_negocio FROM persona_negocio WHERE id_negocio = $1 AND carnet_persona = $2',
       [negocioIdNum, carnet]
@@ -183,7 +180,6 @@ const createCliente = async (data, negocioId) => {
       throw new Error("Ya existe un cliente con este carnet");
     }
 
-    // Verificar que el tipo de cliente existe y pertenece al negocio (si se proporcionó)
     let tipoClienteIdFinal = null;
     if (tipoClienteId) {
       const tipoResult = await query(
@@ -196,7 +192,6 @@ const createCliente = async (data, negocioId) => {
       tipoClienteIdFinal = tipoClienteId;
     }
 
-    // Verificar que la zona de cliente existe y pertenece al negocio (si se proporcionó)
     let zonaClienteIdFinal = null;
     if (zonaClienteId) {
       const zonaResult = await query(
@@ -209,7 +204,6 @@ const createCliente = async (data, negocioId) => {
       zonaClienteIdFinal = zonaClienteId;
     }
 
-    // Crear la persona
     const personaResult = await query(
       `
       INSERT INTO persona (nombre, apellido, celular, fecha_nacimiento, id_tipo_cliente, id_cliente_zona)
@@ -221,7 +215,6 @@ const createCliente = async (data, negocioId) => {
 
     const idPersona = personaResult.rows[0].id_persona;
 
-    // Asociar la persona al negocio con su carnet
     await query(
       'INSERT INTO persona_negocio (id_persona, id_negocio, carnet_persona) VALUES ($1, $2, $3)',
       [idPersona, negocioIdNum, carnet.trim()]
@@ -236,7 +229,6 @@ const createCliente = async (data, negocioId) => {
 
 const updateCliente = async (id, data, negocioId) => {
   try {
-    // IMPORTANTE: El frontend envía 'fechaNacimiento', 'tipoClienteId', 'zonaClienteId'
     const { nombre, apellidos, carnet, celular, fechaNacimiento, tipoClienteId, zonaClienteId } = data;
 
     console.log("🔍 updateCliente service - id:", id, "negocioId:", negocioId);
@@ -252,13 +244,11 @@ const updateCliente = async (id, data, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el cliente existe y pertenece al negocio
     const existing = await getClienteById(clienteId, negocioId);
     if (!existing) {
       throw new Error("Cliente no encontrado");
     }
 
-    // Verificar que el carnet no esté en uso por otro cliente
     if (carnet && carnet !== existing.carnet) {
       const carnetExists = await query(
         'SELECT id_persona_negocio FROM persona_negocio WHERE id_negocio = $1 AND carnet_persona = $2 AND id_persona != $3',
@@ -269,7 +259,6 @@ const updateCliente = async (id, data, negocioId) => {
       }
     }
 
-    // Verificar que el tipo de cliente existe y pertenece al negocio
     let tipoClienteIdFinal = null;
     if (tipoClienteId) {
       const tipoResult = await query(
@@ -282,7 +271,6 @@ const updateCliente = async (id, data, negocioId) => {
       tipoClienteIdFinal = tipoClienteId;
     }
 
-    // Verificar que la zona de cliente existe y pertenece al negocio
     let zonaClienteIdFinal = null;
     if (zonaClienteId) {
       const zonaResult = await query(
@@ -295,7 +283,6 @@ const updateCliente = async (id, data, negocioId) => {
       zonaClienteIdFinal = zonaClienteId;
     }
 
-    // Actualizar la persona
     await query(
       `
       UPDATE persona 
@@ -311,7 +298,6 @@ const updateCliente = async (id, data, negocioId) => {
       [nombre.trim(), apellidos.trim(), celular.trim(), fechaNacimiento || null, tipoClienteIdFinal, zonaClienteIdFinal, clienteId]
     );
 
-    // Actualizar el carnet en persona_negocio
     if (carnet && carnet !== existing.carnet) {
       await query(
         'UPDATE persona_negocio SET carnet_persona = $1 WHERE id_persona = $2 AND id_negocio = $3',
@@ -340,13 +326,11 @@ const deleteCliente = async (id, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el cliente existe y pertenece al negocio
     const existing = await getClienteById(clienteId, negocioId);
     if (!existing) {
       throw new Error("Cliente no encontrado");
     }
 
-    // Verificar si el cliente tiene pedidos asociados
     const pedidosResult = await query(
       'SELECT COUNT(*) as count FROM pedido WHERE id_cliente = $1',
       [clienteId]
@@ -355,14 +339,12 @@ const deleteCliente = async (id, negocioId) => {
     const hasPedidos = parseInt(pedidosResult.rows[0].count) > 0;
 
     if (hasPedidos) {
-      // Si tiene pedidos, solo marcar como inactivo
       await query(
         'UPDATE persona SET estado = $1 WHERE id_persona = $2',
         ['inactivo', clienteId]
       );
       return true;
     } else {
-      // Si no tiene pedidos, eliminar físicamente
       await query(
         'DELETE FROM persona_negocio WHERE id_persona = $1 AND id_negocio = $2',
         [clienteId, negocioIdNum]
@@ -400,7 +382,6 @@ const getClienteMedidas = async (id, negocioId) => {
       return null;
     }
 
-    // Verificar que el cliente existe y pertenece al negocio
     const cliente = await getClienteById(clienteId, negocioId);
     if (!cliente) {
       throw new Error("Cliente no encontrado");
@@ -485,7 +466,6 @@ const saveClienteMedidas = async (id, data, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el cliente existe y pertenece al negocio
     const cliente = await getClienteById(clienteId, negocioId);
     if (!cliente) {
       throw new Error("Cliente no encontrado");
@@ -493,7 +473,6 @@ const saveClienteMedidas = async (id, data, negocioId) => {
 
     const { lejosDerecho, lejosIzquierdo, cercaDerecho, cercaIzquierdo, dip, add } = data;
 
-    // Verificar si el cliente ya tiene medidas
     const existingMedidas = await query(
       'SELECT id_medida FROM persona WHERE id_persona = $1',
       [clienteId]
@@ -502,7 +481,6 @@ const saveClienteMedidas = async (id, data, negocioId) => {
     let idMedida;
 
     if (existingMedidas.rows.length > 0 && existingMedidas.rows[0].id_medida) {
-      // Actualizar medidas existentes
       idMedida = existingMedidas.rows[0].id_medida;
       await query(
         `
@@ -542,7 +520,6 @@ const saveClienteMedidas = async (id, data, negocioId) => {
         ]
       );
     } else {
-      // Crear nuevas medidas
       const result = await query(
         `
         INSERT INTO medida (
@@ -582,7 +559,6 @@ const saveClienteMedidas = async (id, data, negocioId) => {
       );
       idMedida = result.rows[0].id_medida;
 
-      // Asociar las medidas al cliente
       await query(
         'UPDATE persona SET id_medida = $1 WHERE id_persona = $2',
         [idMedida, clienteId]
@@ -610,13 +586,11 @@ const deleteClienteMedidas = async (id, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el cliente existe y pertenece al negocio
     const cliente = await getClienteById(clienteId, negocioId);
     if (!cliente) {
       throw new Error("Cliente no encontrado");
     }
 
-    // Obtener el id_medida del cliente
     const medidaResult = await query(
       'SELECT id_medida FROM persona WHERE id_persona = $1',
       [clienteId]
@@ -625,13 +599,11 @@ const deleteClienteMedidas = async (id, negocioId) => {
     if (medidaResult.rows.length > 0 && medidaResult.rows[0].id_medida) {
       const idMedida = medidaResult.rows[0].id_medida;
       
-      // Desasociar la medida del cliente
       await query(
         'UPDATE persona SET id_medida = NULL WHERE id_persona = $1',
         [clienteId]
       );
 
-      // Eliminar la medida
       await query(
         'DELETE FROM medida WHERE id_medida = $1',
         [idMedida]
@@ -642,60 +614,6 @@ const deleteClienteMedidas = async (id, negocioId) => {
   } catch (error) {
     console.error("Error en deleteClienteMedidas service:", error);
     throw new Error(error.message || "Error al eliminar medidas");
-  }
-};
-
-// ============================================
-// VENTAS DE CLIENTES
-// ============================================
-
-const getClienteVentas = async (id, negocioId) => {
-  try {
-    console.log("🔍 getClienteVentas service - id:", id, "negocioId:", negocioId);
-
-    const clienteId = parseInt(id);
-    if (isNaN(clienteId)) {
-      console.warn("Invalid client ID:", id);
-      return [];
-    }
-
-    const negocioIdNum = parseInt(negocioId);
-    if (isNaN(negocioIdNum)) {
-      console.warn("Invalid negocioId:", negocioId);
-      return [];
-    }
-
-    // Verificar que el cliente existe y pertenece al negocio
-    const cliente = await getClienteById(clienteId, negocioId);
-    if (!cliente) {
-      throw new Error("Cliente no encontrado");
-    }
-
-    const result = await query(
-      `
-      SELECT 
-        p.codigo_pedido as id,
-        p.total,
-        p.sub_total,
-        p.descuento,
-        p.fecha_pedido as fecha,
-        p.estado_pago as "estadoPago",
-        v.monto_pagado as "montoPagado",
-        v.metodo_pago as "metodoPago",
-        u.usuario as vendedor
-      FROM pedido p
-      LEFT JOIN venta v ON v.id_pedido = p.id_pedido
-      LEFT JOIN usuario u ON u.id_usuario = v.id_usuario
-      WHERE p.id_cliente = $1
-      ORDER BY p.fecha_pedido DESC
-      `,
-      [clienteId]
-    );
-
-    return result.rows || [];
-  } catch (error) {
-    console.error("Error en getClienteVentas service:", error);
-    return [];
   }
 };
 
@@ -734,7 +652,6 @@ const createTipoCliente = async (nombre, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que no exista un tipo con el mismo nombre en el negocio
     const existing = await query(
       'SELECT id_tipo_cliente FROM tipo_cliente WHERE id_negocio = $1 AND nombre_tipo_cliente = $2',
       [negocioIdNum, nombre]
@@ -770,7 +687,6 @@ const updateTipoCliente = async (id, nombre, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el tipo existe y pertenece al negocio
     const existing = await query(
       'SELECT id_tipo_cliente FROM tipo_cliente WHERE id_tipo_cliente = $1 AND id_negocio = $2',
       [tipoId, negocioIdNum]
@@ -780,7 +696,6 @@ const updateTipoCliente = async (id, nombre, negocioId) => {
       throw new Error("Tipo de cliente no encontrado");
     }
 
-    // Verificar que no exista otro tipo con el mismo nombre
     const duplicate = await query(
       'SELECT id_tipo_cliente FROM tipo_cliente WHERE id_negocio = $1 AND nombre_tipo_cliente = $2 AND id_tipo_cliente != $3',
       [negocioIdNum, nombre, tipoId]
@@ -816,7 +731,6 @@ const deleteTipoCliente = async (id, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que el tipo existe y pertenece al negocio
     const existing = await query(
       'SELECT id_tipo_cliente FROM tipo_cliente WHERE id_tipo_cliente = $1 AND id_negocio = $2',
       [tipoId, negocioIdNum]
@@ -826,7 +740,6 @@ const deleteTipoCliente = async (id, negocioId) => {
       throw new Error("Tipo de cliente no encontrado");
     }
 
-    // Verificar que no haya clientes usando este tipo
     const clientesUsing = await query(
       'SELECT COUNT(*) as count FROM persona WHERE id_tipo_cliente = $1',
       [tipoId]
@@ -883,7 +796,6 @@ const createZonaCliente = async (nombre, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que no exista una zona con el mismo nombre en el negocio
     const existing = await query(
       'SELECT id_cliente_zona FROM cliente_zona WHERE id_negocio = $1 AND nombre_zona = $2 AND estado = $3',
       [negocioIdNum, nombre, 'activo']
@@ -919,7 +831,6 @@ const updateZonaCliente = async (id, nombre, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que la zona existe y pertenece al negocio
     const existing = await query(
       'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
       [zonaId, negocioIdNum, 'activo']
@@ -929,7 +840,6 @@ const updateZonaCliente = async (id, nombre, negocioId) => {
       throw new Error("Zona de cliente no encontrada");
     }
 
-    // Verificar que no exista otra zona con el mismo nombre
     const duplicate = await query(
       'SELECT id_cliente_zona FROM cliente_zona WHERE id_negocio = $1 AND nombre_zona = $2 AND id_cliente_zona != $3 AND estado = $4',
       [negocioIdNum, nombre, zonaId, 'activo']
@@ -965,7 +875,6 @@ const deleteZonaCliente = async (id, negocioId) => {
       throw new Error("ID de negocio inválido");
     }
 
-    // Verificar que la zona existe y pertenece al negocio
     const existing = await query(
       'SELECT id_cliente_zona FROM cliente_zona WHERE id_cliente_zona = $1 AND id_negocio = $2 AND estado = $3',
       [zonaId, negocioIdNum, 'activo']
@@ -975,7 +884,6 @@ const deleteZonaCliente = async (id, negocioId) => {
       throw new Error("Zona de cliente no encontrada");
     }
 
-    // Verificar que no haya clientes usando esta zona
     const clientesUsing = await query(
       'SELECT COUNT(*) as count FROM persona WHERE id_cliente_zona = $1',
       [zonaId]
@@ -985,7 +893,6 @@ const deleteZonaCliente = async (id, negocioId) => {
       throw new Error("No se puede eliminar la zona porque hay clientes que la usan");
     }
 
-    // Eliminación lógica (cambiar estado)
     await query(
       'UPDATE cliente_zona SET estado = $1 WHERE id_cliente_zona = $2',
       ['eliminado', zonaId]
@@ -1008,7 +915,6 @@ module.exports = {
   getClienteMedidas,
   saveClienteMedidas,
   deleteClienteMedidas,
-  getClienteVentas,
   getTiposCliente,
   createTipoCliente,
   updateTipoCliente,

@@ -435,54 +435,6 @@ const deleteClienteMedidas = async (req, res) => {
 };
 
 // ============================================
-// VENTAS DE CLIENTES
-// ============================================
-
-const getClienteVentas = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { negocioId } = req.query;
-
-    console.log("🔍 getClienteVentas - id:", id, "negocioId:", negocioId);
-
-    if (!negocioId) {
-      return res.status(400).json({
-        success: false,
-        message: "ID de negocio requerido"
-      });
-    }
-
-    const negocioIdNum = parseInt(negocioId);
-    if (isNaN(negocioIdNum)) {
-      return res.status(400).json({
-        success: false,
-        message: "ID de negocio inválido"
-      });
-    }
-
-    if (!id || isNaN(Number(id))) {
-      return res.status(400).json({
-        success: false,
-        message: "ID de cliente inválido"
-      });
-    }
-
-    const ventas = await clientesService.getClienteVentas(id, negocioIdNum);
-
-    res.json({
-      success: true,
-      data: ventas
-    });
-  } catch (error) {
-    console.error("Error en getClienteVentas controller:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error al obtener ventas del cliente"
-    });
-  }
-};
-
-// ============================================
 // TIPOS DE CLIENTE
 // ============================================
 
@@ -852,7 +804,6 @@ module.exports = {
   getClienteMedidas,
   saveClienteMedidas,
   deleteClienteMedidas,
-  getClienteVentas,
   getTiposCliente,
   createTipoCliente,
   updateTipoCliente,
